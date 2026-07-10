@@ -1,0 +1,62 @@
+[
+  {
+    "feature": "pca0_band_5.0_10.0",
+    "importance": 0.01707959259091898
+  },
+  {
+    "feature": "pca1_band_5.0_10.0",
+    "importance": 0.01450673605098635
+  },
+  {
+    "feature": "pca2_band_5.0_10.0",
+    "importance": 0.011976040346348686
+  },
+  {
+    "feature": "pca3_band_5.0_10.0",
+    "importance": 0.011302171176322755
+  },
+  {
+    "feature": "ch57_mean",
+    "importance": 0.009678740485358245
+  },
+  {
+    "feature": "pca4_band_5.0_10.0",
+    "importance": 0.007198372188490887
+  },
+  {
+    "feature": "ch57_median",
+    "importance": 0.006691234395267215
+  },
+  {
+    "feature": "pca0_band_2.0_5.0",
+    "importance": 0.006416330531630793
+  },
+  {
+    "feature": "ch26_min",
+    "importance": 0.0063873299189838445
+  },
+  {
+    "feature": "pca1_band_2.0_5.0",
+    "importance": 0.005719729993987699
+  },
+  {
+    "feature": "pca5_band_5.0_10.0",
+    "importance": 0.005689839139433559
+  },
+  {
+    "feature": "ch1_max",
+    "importance": 0.0056139635816386535
+  },
+  {
+    "feature": "ch27_min",
+    "importance": 0.005485092058607068
+  },
+  {
+    "feature": "ch55_mean",
+    "importance": 0.0052632134936123395
+  },
+  {
+    "feature": "ch4_max",
+    "importance": 0.0050468823477490595
+  }
+]

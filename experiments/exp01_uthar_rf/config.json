@@ -1,0 +1,16 @@
+{
+  "dataset_root": "data/raw/uthar",
+  "seed": 42,
+  "pca_components": 6,
+  "rf": {
+    "n_estimators": 300,
+    "max_depth": null,
+    "min_samples_leaf": 1,
+    "random_state": 42
+  },
+  "svm": {
+    "C": 10.0,
+    "gamma": "scale",
+    "random_state": 42
+  }
+}
