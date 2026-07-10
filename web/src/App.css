@@ -116,3 +116,52 @@ h2 { font-size: 15px; color: var(--muted); margin: 24px 0 8px; }
 .session-table a { color: var(--accent); text-decoration: none; }
 
 .u-legend { font-size: 12px; color: var(--muted); }
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.stat-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  min-width: 0;
+}
+
+.stat-card-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stat-card-value {
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--accent);
+  margin: 6px 0 2px;
+}
+.stat-card-value small { font-size: 13px; color: var(--muted); font-weight: 400; }
+.stat-card-value.state-ok { color: #4ade80; }
+.stat-card-value.state-warn { color: #facc15; }
+.stat-card-value.state-muted { color: var(--muted); }
+
+.stat-card-sub { font-size: 12px; color: var(--muted); }
+
+.tag-experimental {
+  background: #3b1d3a;
+  color: #f472b6;
+  border: 1px solid #6b2160;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 10px;
+  text-transform: lowercase;
+  letter-spacing: 0;
+}
