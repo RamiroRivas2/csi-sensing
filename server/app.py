@@ -317,16 +317,29 @@ async def ws_live(ws: WebSocket) -> None:
     times: list[float] = []
     last_estimate = 0.0
     last_fall_wall_t = 0.0
+    n_sub: int | None = None
     try:
         while True:
             line = await reader.readline()
             if not line:
                 await ws.send_json({"type": "error", "message": "collector disconnected"})
                 break
-            frame = json.loads(line)
+            try:
+                frame = json.loads(line)
+                amp = frame["amp"]
+            except (json.JSONDecodeError, KeyError, TypeError):
+                continue  # skip a garbled fanout line rather than dropping the connection
             await ws.send_json({"type": "frame", **frame})
 
-            window.append(frame["amp"])
+            # guard against a subcarrier-count change mid-stream (TX renegotiation):
+            # a ragged window would make np.asarray build an object array and crash the
+            # DSP. Reset the rolling window to the new width instead.
+            if n_sub is not None and len(amp) != n_sub:
+                window.clear()
+                times.clear()
+            n_sub = len(amp)
+
+            window.append(amp)
             times.append(frame["t"])
             if len(window) > LIVE_WINDOW_FRAMES:
                 window.pop(0)
@@ -336,13 +349,24 @@ async def ws_live(ws: WebSocket) -> None:
             if span > 20.0 and times[-1] - last_estimate >= 2.0:
                 last_estimate = times[-1]
                 fs = (len(times) - 1) / span
-                matrix = np.asarray(window)
-                _, components = pca_denoise(matrix, n_components=1)
-                comp = components[:, 0]
-                breathing = estimate_breathing_rate(comp, fs)
-                heart = estimate_heart_rate(comp, fs)
-                activity = classify_activity(comp, fs)
-                quality = link_quality(comp, fs)
+                # DSP can raise on numerically pathological windows; a bad tick should
+                # skip its estimate, not tear down the live connection.
+                try:
+                    matrix = np.asarray(window, dtype=float)
+                    _, components = pca_denoise(matrix, n_components=1)
+                    comp = components[:, 0]
+                    breathing = estimate_breathing_rate(comp, fs)
+                    heart = estimate_heart_rate(comp, fs)
+                    activity = classify_activity(comp, fs)
+                    quality = link_quality(comp, fs)
+                    falls = [
+                        event
+                        for event in detect_falls(comp, fs)
+                        if times[0] + event.t > last_fall_wall_t + 10.0
+                    ]
+                except Exception:  # noqa: BLE001 - a bad estimate tick must not kill the WS
+                    continue
+
                 await ws.send_json(
                     {
                         "type": "vitals",
@@ -358,19 +382,17 @@ async def ws_live(ws: WebSocket) -> None:
                         "quality_verdict": quality.verdict,
                     }
                 )
-
-                for event in detect_falls(comp, fs):
+                for event in falls:
                     wall_t = times[0] + event.t
-                    if wall_t > last_fall_wall_t + 10.0:  # dedupe across rolling windows
-                        last_fall_wall_t = wall_t
-                        await ws.send_json(
-                            {
-                                "type": "fall_alert",
-                                "t": wall_t,
-                                "severity": event.severity,
-                                "confidence": event.confidence,
-                            }
-                        )
+                    last_fall_wall_t = wall_t  # dedupe across rolling windows
+                    await ws.send_json(
+                        {
+                            "type": "fall_alert",
+                            "t": wall_t,
+                            "severity": event.severity,
+                            "confidence": event.confidence,
+                        }
+                    )
     except (WebSocketDisconnect, ConnectionResetError):
         pass
     finally:
