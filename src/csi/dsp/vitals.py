@@ -10,6 +10,7 @@ only sees mechanical chest motion.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -152,6 +153,25 @@ def estimate_heart_rate(
     return estimate_rate(sig, fs, band, exclude_hz=harmonics)
 
 
+def _timeline(
+    x: np.ndarray,
+    fs: float,
+    window_s: float,
+    hop_s: float,
+    estimate_fn: Callable[[np.ndarray], RateEstimate],
+) -> tuple[np.ndarray, list[RateEstimate]]:
+    x = _first_component(x)
+    win = int(window_s * fs)
+    hop = max(1, int(hop_s * fs))
+    n = x.shape[0]
+    if n < win:
+        return np.empty(0), []
+    starts = np.arange(0, n - win + 1, hop)
+    estimates = [estimate_fn(x[s : s + win]) for s in starts]
+    times = (starts + win / 2) / fs
+    return times, estimates
+
+
 def rate_timeline(
     x: np.ndarray,
     fs: float,
@@ -160,16 +180,7 @@ def rate_timeline(
     hop_s: float,
 ) -> tuple[np.ndarray, list[RateEstimate]]:
     """Sliding rate estimates over a long recording (window center times, estimates)."""
-    x = _first_component(x)
-    win = int(window_s * fs)
-    hop = max(1, int(hop_s * fs))
-    n = x.shape[0]
-    if n < win:
-        return np.empty(0), []
-    starts = np.arange(0, n - win + 1, hop)
-    estimates = [estimate_rate(x[s : s + win], fs, band) for s in starts]
-    times = (starts + win / 2) / fs
-    return times, estimates
+    return _timeline(x, fs, window_s, hop_s, lambda w: estimate_rate(w, fs, band))
 
 
 def heart_rate_timeline(
@@ -185,16 +196,7 @@ def heart_rate_timeline(
     timelines: the plain band search is vulnerable to harmonic confusion from
     non-sinusoidal breathing (see ``estimate_heart_rate``).
     """
-    x = _first_component(x)
-    win = int(window_s * fs)
-    hop = max(1, int(hop_s * fs))
-    n = x.shape[0]
-    if n < win:
-        return np.empty(0), []
-    starts = np.arange(0, n - win + 1, hop)
-    estimates = [estimate_heart_rate(x[s : s + win], fs) for s in starts]
-    times = (starts + win / 2) / fs
-    return times, estimates
+    return _timeline(x, fs, window_s, hop_s, lambda w: estimate_heart_rate(w, fs))
 
 
 @dataclass

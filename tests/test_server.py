@@ -170,6 +170,8 @@ def test_ws_live_skips_malformed_frames(client, monkeypatch):
         b"not json\n"
         b'{"amp": [1.0, 2.0]}\n'
         b'{"t": 0.5, "amp": 3}\n'
+        b'{"t": 0.7, "amp": [1.0, null]}\n'
+        b'{"t": 0.8, "amp": [1.0, "x"]}\n'
         b'{"t": "bad", "amp": [1.0, 2.0]}\n'
         b'{"t": 1.0, "amp": [1.0, 2.0]}\n'
     )

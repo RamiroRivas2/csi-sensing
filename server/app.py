@@ -329,7 +329,7 @@ async def ws_live(ws: WebSocket) -> None:
                 break
             try:
                 frame = json.loads(line)
-                amp = frame["amp"]
+                amp = [float(v) for v in frame["amp"]]
                 frame_t = float(frame["t"])
                 width = len(amp)
             except (json.JSONDecodeError, KeyError, TypeError, ValueError):
