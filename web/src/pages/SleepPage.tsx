@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, type SessionInfo } from '../lib/api'
 import { LineChart } from '../components/LineChart'
+import { Hypnogram } from '../components/Hypnogram'
 
 interface SleepReport {
   duration_h: number
@@ -9,8 +10,14 @@ interface SleepReport {
   awakenings: number
   restlessness: number
   longest_still_h: number
+  sleep_onset_min: number | null
   breathing_median_bpm: number | null
   breathing_iqr_bpm: number | null
+}
+
+interface ActivityPoint {
+  t: number
+  state: string
 }
 
 interface Night extends SleepReport {
@@ -28,6 +35,7 @@ export function SleepPage() {
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [sessionId, setSessionId] = useState('')
   const [report, setReport] = useState<SleepReport | null>(null)
+  const [activity, setActivity] = useState<ActivityPoint[]>([])
   const [wellbeing, setWellbeing] = useState<Wellbeing | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -42,11 +50,18 @@ export function SleepPage() {
   useEffect(() => {
     if (!sessionId) return
     setReport(null)
+    setActivity([])
     fetch(`/api/sessions/${sessionId}/sleep`)
       .then((r) => r.json())
       .then(setReport)
       .catch((e) => setError(String(e)))
+    fetch(`/api/sessions/${sessionId}/vitals`)
+      .then((r) => r.json())
+      .then((v) => setActivity(v.activity ?? []))
+      .catch(() => {})
   }, [sessionId])
+
+  const selected = sessions.find((s) => s.id === sessionId)
 
   if (sessions.length === 0) return <div className="empty">{error ?? 'No sessions recorded yet.'}</div>
 
@@ -75,6 +90,13 @@ export function SleepPage() {
             <div className="stat-card-sub">motion bouts over 30 s</div>
           </div>
           <div className="stat-card">
+            <div className="stat-card-label">time to fall asleep</div>
+            <div className="stat-card-value">
+              {report.sleep_onset_min !== null ? report.sleep_onset_min : '--'} <small>min</small>
+            </div>
+            <div className="stat-card-sub">until the first sustained still period</div>
+          </div>
+          <div className="stat-card">
             <div className="stat-card-label">longest still stretch</div>
             <div className="stat-card-value">
               {report.longest_still_h.toFixed(1)} <small>h</small>
@@ -91,6 +113,13 @@ export function SleepPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {activity.length > 0 && selected && (
+        <>
+          <h2>Night timeline</h2>
+          <Hypnogram activity={activity} durationS={selected.duration_s} />
+        </>
       )}
 
       <h2>Trends across nights</h2>

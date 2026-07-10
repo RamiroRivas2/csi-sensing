@@ -6,6 +6,14 @@ import { DspInspectorPage } from './pages/DspInspectorPage'
 import { VitalsPage } from './pages/VitalsPage'
 import { SleepPage } from './pages/SleepPage'
 import { ExperimentsPage } from './pages/ExperimentsPage'
+import {
+  FlaskIcon,
+  HeartIcon,
+  LayersIcon,
+  MoonIcon,
+  PulseIcon,
+  SlidersIcon,
+} from './components/icons'
 import './App.css'
 
 export default function App() {
@@ -13,13 +21,30 @@ export default function App() {
     <BrowserRouter>
       <div className="layout">
         <nav className="sidebar">
-          <div className="brand">csi-sensing</div>
-          <NavLink to="/" end>Dashboard</NavLink>
-          <NavLink to="/sessions">Sessions</NavLink>
-          <NavLink to="/vitals">Vitals</NavLink>
-          <NavLink to="/sleep">Sleep</NavLink>
-          <NavLink to="/dsp">DSP inspector</NavLink>
-          <NavLink to="/experiments">Experiments</NavLink>
+          <div className="brand">
+            <svg viewBox="0 0 32 32" className="brand-mark" aria-hidden>
+              <rect width="32" height="32" rx="7" fill="#0f1b33" />
+              <path
+                d="M4 20 L9 20 L12 10 L16 26 L20 14 L23 20 L28 20"
+                fill="none"
+                stroke="#38bdf8"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            <div>
+              <div className="brand-name">csi sensing</div>
+              <div className="brand-sub">ambient home monitor</div>
+            </div>
+          </div>
+          <NavLink to="/" end><PulseIcon /> Dashboard</NavLink>
+          <NavLink to="/sessions"><LayersIcon /> Sessions</NavLink>
+          <NavLink to="/vitals"><HeartIcon /> Vitals</NavLink>
+          <NavLink to="/sleep"><MoonIcon /> Sleep</NavLink>
+          <NavLink to="/dsp"><SlidersIcon /> DSP inspector</NavLink>
+          <NavLink to="/experiments"><FlaskIcon /> Experiments</NavLink>
+          <div className="sidebar-footer">alpha - not a medical device</div>
         </nav>
         <main className="content">
           <Routes>

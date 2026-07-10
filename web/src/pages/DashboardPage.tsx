@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { CsiHeatmap, type CsiHeatmapHandle } from '../components/CsiHeatmap'
+import { HeatmapLegend } from '../components/HeatmapLegend'
 import { LineChart } from '../components/LineChart'
 
 type Status = 'connecting' | 'streaming' | 'no-collector' | 'closed'
@@ -12,6 +13,9 @@ interface Vitals {
   state: string
   presence: number
   motion: number
+  snr_db: number
+  quality_score: number
+  quality_verdict: string
 }
 
 interface FallAlert {
@@ -128,6 +132,38 @@ export function DashboardPage() {
             {vitals ? `presence ${vitals.presence.toFixed(2)} - motion ${vitals.motion.toFixed(2)}` : ''}
           </div>
         </div>
+        <div className="stat-card">
+          <div className="stat-card-label">link quality</div>
+          <div
+            className={`stat-card-value ${
+              vitals && vitals.quality_score >= 60
+                ? 'state-ok'
+                : vitals && vitals.quality_score >= 30
+                  ? 'state-warn'
+                  : ''
+            }`}
+          >
+            {vitals ? vitals.quality_score : '--'} <small>/ 100</small>
+          </div>
+          <div className="quality-meter">
+            <div
+              style={{
+                width: `${vitals?.quality_score ?? 0}%`,
+                background:
+                  vitals && vitals.quality_score >= 60
+                    ? 'var(--good)'
+                    : vitals && vitals.quality_score >= 30
+                      ? 'var(--warn)'
+                      : 'var(--danger)',
+              }}
+            />
+          </div>
+          <div className="stat-card-sub">
+            {vitals
+              ? `${vitals.quality_verdict} placement - ${vitals.snr_db} dB breathing SNR`
+              : 'move nodes until this goes green'}
+          </div>
+        </div>
       </div>
 
       {status === 'no-collector' ? (
@@ -142,6 +178,7 @@ export function DashboardPage() {
         <>
           <h2>Live CSI</h2>
           <CsiHeatmap ref={heatmapRef} liveColumns={600} height={240} />
+          <HeatmapLegend />
           <p className="hint">Rows are subcarriers, color is amplitude. Breathing shows as a slow coherent shimmer; motion as vertical ripples.</p>
         </>
       )}
