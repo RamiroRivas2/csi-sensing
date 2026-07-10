@@ -183,7 +183,8 @@ def test_ws_live_skips_malformed_frames(client, monkeypatch):
 
 def test_ws_live_dedupes_falls_within_one_tick(client, monkeypatch):
     """Multiple fall events less than 10 s apart in one window emit only the first."""
-    payload = b"".join(f'{{"t": {i}.0, "amp": [1.0, 2.0]}}\n'.encode() for i in range(25))
+    # 2 Hz frames: fast enough for the breathing-band frame-rate guard in _live_vitals
+    payload = b"".join(f'{{"t": {i * 0.5}, "amp": [1.0, 2.0]}}\n'.encode() for i in range(50))
     rate = SimpleNamespace(bpm=12.0, confidence=0.9)
     monkeypatch.setattr(
         "server.app.pca_denoise", lambda m, n_components=1: (m, np.ones((m.shape[0], 1)))
@@ -216,3 +217,63 @@ def test_ws_live_dedupes_falls_within_one_tick(client, monkeypatch):
             if msg["type"] == "fall_alert":
                 alerts.append(msg["t"])
     assert alerts == [11.0, 22.0]
+
+
+def test_csi_rejects_nonpositive_max_cols(client):
+    for bad in (0, -5):
+        res = client.get("/api/sessions/esp32/demo/csi", params={"max_cols": bad})
+        assert res.status_code == 422
+
+
+def test_rewritten_session_is_not_served_stale(client, tmp_path):
+    import os
+
+    assert client.get("/api/sessions/esp32/demo").json()["fs"] == 20.0
+
+    path = tmp_path / "esp32" / "demo.npz"
+    rng = np.random.default_rng(9)
+    amp = (20 + rng.normal(0, 0.3, (600, 64))).astype(np.float32)
+    save_session(path, Session(amp=amp, fs=10.0, meta=SessionMeta(dataset="esp32")))
+    os.utime(path, ns=(path.stat().st_atime_ns, path.stat().st_mtime_ns + 1_000_000))
+
+    assert client.get("/api/sessions/esp32/demo").json()["fs"] == 10.0
+
+
+def test_downsample_preserves_fades():
+    from server.arrays import downsample_time
+
+    x = np.full((100, 2), 10.0, dtype=np.float32)
+    x[10, 0] = 0.0  # deep fade: deviates further from the mean...
+    x[11, 0] = 11.0  # ...than this small rise in the same bin
+    out = downsample_time(x, max_cols=10)
+    assert out.shape == (10, 2)
+    assert out[1, 0] < 5.0  # the fade survives; a plain per-bin max would return 11
+
+
+def test_live_vitals_guards_low_frame_rates():
+    from server.app import _live_vitals
+
+    rng = np.random.default_rng(11)
+
+    def matrix(fs: float) -> np.ndarray:
+        t = np.arange(int(60 * fs)) / fs
+        breathing = np.sin(2 * np.pi * 0.25 * t)
+        return (
+            20
+            + 2 * np.outer(breathing, rng.uniform(0.5, 1.5, 16))
+            + rng.normal(0, 0.3, (t.shape[0], 16))
+        )
+
+    # below the breathing band's requirement: no estimate, but no exception
+    payload, falls = _live_vitals(matrix(1.2), 1.2)
+    assert payload is None and falls == []
+
+    # enough for breathing but not for the heart band: heart reads zero
+    payload, _ = _live_vitals(matrix(4.0), 4.0)
+    assert payload is not None
+    assert abs(payload["breathing_bpm"] - 15.0) <= 1.5
+    assert payload["heart_bpm"] == 0.0 and payload["heart_confidence"] == 0.0
+
+    # full rate: both estimates present
+    payload, _ = _live_vitals(matrix(20.0), 20.0)
+    assert payload is not None and payload["heart_bpm"] > 0.0
