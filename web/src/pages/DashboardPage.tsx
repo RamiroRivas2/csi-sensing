@@ -14,6 +14,12 @@ interface Vitals {
   motion: number
 }
 
+interface FallAlert {
+  t: number
+  severity: number
+  confidence: number
+}
+
 const HISTORY_LIMIT = 150 // ~5 min of estimates at one every 2 s
 
 export function DashboardPage() {
@@ -24,6 +30,7 @@ export function DashboardPage() {
   const [rssi, setRssi] = useState<number | null>(null)
   const [fps, setFps] = useState<number | null>(null)
   const [history, setHistory] = useState<{ t: number; breathing: number; heart: number }[]>([])
+  const [fallAlerts, setFallAlerts] = useState<FallAlert[]>([])
 
   useEffect(() => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
@@ -47,6 +54,8 @@ export function DashboardPage() {
             -HISTORY_LIMIT,
           ),
         )
+      } else if (msg.type === 'fall_alert') {
+        setFallAlerts((a) => [...a, msg].slice(-5))
       } else if (msg.type === 'error') {
         setStatus('no-collector')
       }
@@ -71,6 +80,19 @@ export function DashboardPage() {
           {fps !== null && <span className="pill">{fps.toFixed(1)} frames/s</span>}
         </div>
       </div>
+
+      {fallAlerts.length > 0 && (
+        <div className="fall-banner">
+          <div>
+            <b>Possible fall detected</b>{' '}
+            {fallAlerts.map((a) => new Date(a.t * 1000).toLocaleTimeString()).join(', ')}
+            <span className="fall-banner-sub">
+              {' '}- burst-then-stillness pattern (research-grade detector, verify in person)
+            </span>
+          </div>
+          <button onClick={() => setFallAlerts([])}>dismiss</button>
+        </div>
+      )}
 
       <div className="card-grid">
         <div className="stat-card">

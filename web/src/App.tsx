@@ -4,6 +4,7 @@ import { SessionsPage } from './pages/SessionsPage'
 import { SessionPage } from './pages/SessionPage'
 import { DspInspectorPage } from './pages/DspInspectorPage'
 import { VitalsPage } from './pages/VitalsPage'
+import { SleepPage } from './pages/SleepPage'
 import { ExperimentsPage } from './pages/ExperimentsPage'
 import './App.css'
 
@@ -16,6 +17,7 @@ export default function App() {
           <NavLink to="/" end>Dashboard</NavLink>
           <NavLink to="/sessions">Sessions</NavLink>
           <NavLink to="/vitals">Vitals</NavLink>
+          <NavLink to="/sleep">Sleep</NavLink>
           <NavLink to="/dsp">DSP inspector</NavLink>
           <NavLink to="/experiments">Experiments</NavLink>
         </nav>
@@ -25,6 +27,7 @@ export default function App() {
             <Route path="/sessions" element={<SessionsPage />} />
             <Route path="/sessions/:id" element={<SessionPage />} />
             <Route path="/vitals" element={<VitalsPage />} />
+            <Route path="/sleep" element={<SleepPage />} />
             <Route path="/dsp" element={<DspInspectorPage />} />
             <Route path="/experiments" element={<ExperimentsPage />} />
           </Routes>
