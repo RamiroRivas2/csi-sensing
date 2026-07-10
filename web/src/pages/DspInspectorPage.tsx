@@ -25,8 +25,12 @@ export function DspInspectorPage() {
   useEffect(() => {
     if (!sessionId || !selected) return
     setError(null)
+    // spinner inputs fire once per step: abort superseded requests so a slow
+    // older response can never overwrite a newer one (or mismatch signal vs psd)
+    const ctrl = new AbortController()
     fetchFloat32(
       `/api/sessions/${sessionId}/signal?subcarrier=${subcarrier}&low=${low}&high=${high}`,
+      ctrl.signal,
     )
       .then(({ data, shape }) => {
         const t = shape[1]
@@ -36,8 +40,13 @@ export function DspInspectorPage() {
           fs: selected.fs,
         })
       })
-      .catch((e) => setError(String(e)))
-    api.psd(sessionId, subcarrier).then(setPsd).catch((e) => setError(String(e)))
+      .catch((e) => {
+        if (!ctrl.signal.aborted) setError(String(e))
+      })
+    api.psd(sessionId, subcarrier, ctrl.signal).then(setPsd).catch((e) => {
+      if (!ctrl.signal.aborted) setError(String(e))
+    })
+    return () => ctrl.abort()
   }, [sessionId, subcarrier, low, high, selected])
 
   const times = useMemo(

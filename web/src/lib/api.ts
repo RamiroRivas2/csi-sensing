@@ -28,16 +28,18 @@ export interface Psd {
   psd: number[]
 }
 
-async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url)
+export async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(url, { signal })
   if (!res.ok) throw new Error(`${url}: ${res.status}`)
   return res.json() as Promise<T>
 }
 
 export const api = {
-  sessions: () => getJson<SessionInfo[]>('/api/sessions'),
-  session: (id: string) => getJson<SessionMeta>(`/api/sessions/${id}`),
-  breathing: (id: string) => getJson<{ points: BreathingPoint[] }>(`/api/sessions/${id}/breathing`),
-  psd: (id: string, subcarrier: number) =>
-    getJson<Psd>(`/api/sessions/${id}/psd?subcarrier=${subcarrier}`),
+  sessions: (signal?: AbortSignal) => getJson<SessionInfo[]>('/api/sessions', signal),
+  session: (id: string, signal?: AbortSignal) =>
+    getJson<SessionMeta>(`/api/sessions/${id}`, signal),
+  breathing: (id: string, signal?: AbortSignal) =>
+    getJson<{ points: BreathingPoint[] }>(`/api/sessions/${id}/breathing`, signal),
+  psd: (id: string, subcarrier: number, signal?: AbortSignal) =>
+    getJson<Psd>(`/api/sessions/${id}/psd?subcarrier=${subcarrier}`, signal),
 }

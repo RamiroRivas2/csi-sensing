@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { getJson } from '../lib/api'
 import { ConfusionMatrix } from '../components/ConfusionMatrix'
 
 interface ModelMetrics {
@@ -17,14 +18,19 @@ interface Experiment {
 
 export function ExperimentsPage() {
   const [experiments, setExperiments] = useState<Experiment[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetch('/api/experiments')
-      .then((r) => r.json())
+    const ctrl = new AbortController()
+    getJson<Experiment[]>('/api/experiments', ctrl.signal)
       .then(setExperiments)
-      .catch(() => setExperiments([]))
+      .catch((e) => {
+        if (!ctrl.signal.aborted) setError(String(e))
+      })
+    return () => ctrl.abort()
   }, [])
 
+  if (error) return <div className="empty">{error}</div>
   if (experiments === null) return <div className="empty">loading...</div>
 
   if (experiments.length === 0) {
