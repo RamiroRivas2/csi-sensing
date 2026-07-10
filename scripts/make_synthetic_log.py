@@ -19,7 +19,12 @@ FS = 20.0  # frames per second
 
 
 def make_log(
-    path: Path, bpm: float, duration_s: float, heart_bpm: float = 72.0, seed: int = 7
+    path: Path,
+    bpm: float,
+    duration_s: float,
+    heart_bpm: float = 72.0,
+    fall_at: float | None = None,
+    seed: int = 7,
 ) -> None:
     rng = np.random.default_rng(seed)
     n_frames = int(duration_s * FS)
@@ -38,6 +43,8 @@ def make_log(
         for i in range(n_frames):
             amp = baseline * (1 + sensitivity * (0.08 * breathing[i] + 0.012 * heartbeat[i]))
             amp = amp + rng.normal(0, 0.8, N_SUBCARRIERS)
+            if fall_at is not None and fall_at <= i / FS < fall_at + 1.5:
+                amp = amp + rng.normal(0, 12.0, N_SUBCARRIERS)  # impact burst
             phase = rng.uniform(0, 2 * np.pi, N_SUBCARRIERS)
             re = np.clip(amp * np.cos(phase), -127, 127).astype(int)
             im = np.clip(amp * np.sin(phase), -127, 127).astype(int)
@@ -61,10 +68,11 @@ def main() -> None:
     parser.add_argument("--bpm", type=float, default=15.0)
     parser.add_argument("--heart-bpm", type=float, default=72.0)
     parser.add_argument("--duration", type=float, default=120.0)
+    parser.add_argument("--fall-at", type=float, default=None, help="inject a fall (seconds)")
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
     out = args.out or Path(f"data/raw/synthetic_{args.bpm:.0f}bpm.log")
-    make_log(out, args.bpm, args.duration, heart_bpm=args.heart_bpm)
+    make_log(out, args.bpm, args.duration, heart_bpm=args.heart_bpm, fall_at=args.fall_at)
 
 
 if __name__ == "__main__":
