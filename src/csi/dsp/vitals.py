@@ -84,11 +84,15 @@ def estimate_rate(
 
 
 def _notch_harmonics(x: np.ndarray, fs: float, fundamental_hz: float, band: tuple[float, float],
-                     n_harmonics: int = 6, q: float = 12.0) -> np.ndarray:
-    """Remove a fundamental's harmonics that fall inside ``band`` with IIR notches."""
+                     q: float = 12.0) -> np.ndarray:
+    """Remove every harmonic of ``fundamental_hz`` inside ``band`` with IIR notches."""
+    if fundamental_hz <= 0:
+        return x
     low, high = band
     out = x
-    for k in range(1, n_harmonics + 1):
+    k_lo = max(1, int(np.ceil(low / fundamental_hz)))
+    k_hi = int(np.floor(high / fundamental_hz))
+    for k in range(k_lo, k_hi + 1):
         f = k * fundamental_hz
         if low <= f <= high and 0 < f < fs / 2:
             b, a = signal.iirnotch(f, q, fs)

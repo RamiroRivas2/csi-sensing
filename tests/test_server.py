@@ -1,3 +1,7 @@
+import socket
+import threading
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
@@ -121,3 +125,73 @@ def test_quality_endpoint(client):
 
 def test_unknown_session_404(client):
     assert client.get("/api/sessions/nope/csi").status_code == 404
+
+
+def _fake_fanout(monkeypatch, payload: bytes) -> None:
+    """Serve one connection with a fixed byte payload in place of the collector."""
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    monkeypatch.setattr("server.app.FANOUT_HOST", "127.0.0.1")
+    monkeypatch.setattr("server.app.FANOUT_PORT", srv.getsockname()[1])
+
+    def serve() -> None:
+        conn, _ = srv.accept()
+        conn.sendall(payload)
+        conn.close()
+        srv.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+
+
+def test_ws_live_skips_malformed_frames(client, monkeypatch):
+    """Garbled fanout lines (bad JSON, missing keys, wrong types) are skipped;
+    they must not crash the handler."""
+    payload = (
+        b"not json\n"
+        b'{"amp": [1.0, 2.0]}\n'
+        b'{"t": 0.5, "amp": 3}\n'
+        b'{"t": "bad", "amp": [1.0, 2.0]}\n'
+        b'{"t": 1.0, "amp": [1.0, 2.0]}\n'
+    )
+    _fake_fanout(monkeypatch, payload)
+    with client.websocket_connect("/ws/live") as ws:
+        assert ws.receive_json() == {"type": "frame", "t": 1.0, "amp": [1.0, 2.0]}
+        assert ws.receive_json()["type"] == "error"  # collector disconnected
+
+
+def test_ws_live_dedupes_falls_within_one_tick(client, monkeypatch):
+    """Multiple fall events less than 10 s apart in one window emit only the first."""
+    payload = b"".join(f'{{"t": {i}.0, "amp": [1.0, 2.0]}}\n'.encode() for i in range(25))
+    rate = SimpleNamespace(bpm=12.0, confidence=0.9)
+    monkeypatch.setattr(
+        "server.app.pca_denoise", lambda m, n_components=1: (m, np.ones((m.shape[0], 1)))
+    )
+    monkeypatch.setattr("server.app.estimate_breathing_rate", lambda c, fs: rate)
+    monkeypatch.setattr("server.app.estimate_heart_rate", lambda c, fs: rate)
+    monkeypatch.setattr(
+        "server.app.classify_activity",
+        lambda c, fs: SimpleNamespace(state="still", presence_score=1.0, motion_score=0.0),
+    )
+    monkeypatch.setattr(
+        "server.app.link_quality",
+        lambda c, fs: SimpleNamespace(snr_db=10.0, score=80, verdict="good"),
+    )
+    monkeypatch.setattr(
+        "server.app.detect_falls",
+        lambda c, fs: [
+            SimpleNamespace(t=11.0, severity="high", confidence=0.9),
+            SimpleNamespace(t=15.0, severity="high", confidence=0.8),
+            SimpleNamespace(t=22.0, severity="high", confidence=0.7),
+        ],
+    )
+    _fake_fanout(monkeypatch, payload)
+    alerts = []
+    with client.websocket_connect("/ws/live") as ws:
+        while True:
+            msg = ws.receive_json()
+            if msg["type"] == "error":
+                break
+            if msg["type"] == "fall_alert":
+                alerts.append(msg["t"])
+    assert alerts == [11.0, 22.0]

@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
+import time
 from functools import lru_cache
 from pathlib import Path
 
@@ -36,6 +38,7 @@ from server import registry
 from server.arrays import MAX_COLS_DEFAULT, binary_response, downsample_time
 
 app = FastAPI(title="csi-sensing")
+logger = logging.getLogger(__name__)
 
 
 def _get(session_id: str):
@@ -317,6 +320,7 @@ async def ws_live(ws: WebSocket) -> None:
     times: list[float] = []
     last_estimate = 0.0
     last_fall_wall_t = 0.0
+    last_dsp_warn = float("-inf")
     n_sub: int | None = None
     try:
         while True:
@@ -327,20 +331,22 @@ async def ws_live(ws: WebSocket) -> None:
             try:
                 frame = json.loads(line)
                 amp = frame["amp"]
-            except (json.JSONDecodeError, KeyError, TypeError):
+                frame_t = float(frame["t"])
+                width = len(amp)
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                 continue  # skip a garbled fanout line rather than dropping the connection
             await ws.send_json({"type": "frame", **frame})
 
             # guard against a subcarrier-count change mid-stream (TX renegotiation):
             # a ragged window would make np.asarray build an object array and crash the
             # DSP. Reset the rolling window to the new width instead.
-            if n_sub is not None and len(amp) != n_sub:
+            if n_sub is not None and width != n_sub:
                 window.clear()
                 times.clear()
-            n_sub = len(amp)
+            n_sub = width
 
             window.append(amp)
-            times.append(frame["t"])
+            times.append(frame_t)
             if len(window) > LIVE_WINDOW_FRAMES:
                 window.pop(0)
                 times.pop(0)
@@ -359,12 +365,20 @@ async def ws_live(ws: WebSocket) -> None:
                     heart = estimate_heart_rate(comp, fs)
                     activity = classify_activity(comp, fs)
                     quality = link_quality(comp, fs)
-                    falls = [
-                        event
-                        for event in detect_falls(comp, fs)
-                        if times[0] + event.t > last_fall_wall_t + 10.0
-                    ]
+                    falls = []
+                    fall_cutoff = last_fall_wall_t
+                    for event in detect_falls(comp, fs):
+                        wall_t = times[0] + event.t
+                        if wall_t > fall_cutoff + 10.0:
+                            fall_cutoff = wall_t
+                            falls.append((wall_t, event))
                 except Exception:  # noqa: BLE001 - a bad estimate tick must not kill the WS
+                    now = time.monotonic()
+                    if now - last_dsp_warn >= 30.0:
+                        last_dsp_warn = now
+                        logger.warning(
+                            "live DSP tick failed; skipping estimate", exc_info=True
+                        )
                     continue
 
                 await ws.send_json(
@@ -382,8 +396,7 @@ async def ws_live(ws: WebSocket) -> None:
                         "quality_verdict": quality.verdict,
                     }
                 )
-                for event in falls:
-                    wall_t = times[0] + event.t
+                for wall_t, event in falls:
                     last_fall_wall_t = wall_t  # dedupe across rolling windows
                     await ws.send_json(
                         {
