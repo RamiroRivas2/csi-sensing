@@ -325,6 +325,35 @@ h2 {
 }
 .hypnogram-key i:first-child { margin-left: 0; }
 
+/* ---------- experiments / confusion matrix ---------- */
+
+.exp-block { margin-bottom: 36px; }
+
+.confusion-wrap { overflow-x: auto; }
+.confusion {
+  border-collapse: separate;
+  border-spacing: 2px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.confusion th {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 11px;
+  padding: 4px 6px;
+  white-space: nowrap;
+}
+.confusion .pred-head { transform: none; }
+.confusion .true-head { text-align: right; }
+.confusion .corner { color: var(--faint); font-size: 10px; }
+.confusion td {
+  width: 44px;
+  height: 34px;
+  text-align: center;
+  border-radius: 5px;
+  background: var(--panel);
+}
+
 /* ---------- uPlot ---------- */
 
 .u-legend { font-size: 11.5px; color: var(--muted); }

@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import json
 from functools import lru_cache
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
@@ -266,10 +267,24 @@ def session_meta(session_id: str) -> dict:
     }
 
 
+EXPERIMENTS_DIR = Path("experiments")
+
+
 @app.get("/api/experiments")
 def experiments() -> list[dict]:
-    """Populated once the UT-HAR baseline (exp01) lands."""
-    return []
+    """List experiments that have produced a metrics.json."""
+    out = []
+    for metrics_file in sorted(EXPERIMENTS_DIR.glob("*/metrics.json")):
+        exp_id = metrics_file.parent.name
+        config_file = metrics_file.parent / "config.json"
+        out.append(
+            {
+                "id": exp_id,
+                "metrics": json.loads(metrics_file.read_text()),
+                "config": json.loads(config_file.read_text()) if config_file.exists() else {},
+            }
+        )
+    return out
 
 
 LIVE_WINDOW_FRAMES = 1200  # ~60 s at 20 fps kept for rolling bpm estimation
