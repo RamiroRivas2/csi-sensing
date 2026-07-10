@@ -34,9 +34,7 @@ def test_no_fall_in_quiet_breathing():
 def test_continuous_walking_is_not_a_fall():
     rng = np.random.default_rng(2)
     t = np.arange(int(120 * FS)) / FS
-    walking = sum(
-        np.sin(2 * np.pi * f * t + rng.uniform(0, 2 * np.pi)) for f in (1.2, 2.1, 3.4)
-    )
+    walking = sum(np.sin(2 * np.pi * f * t + rng.uniform(0, 2 * np.pi)) for f in (1.2, 2.1, 3.4))
     x = 2.0 * walking + rng.normal(0, 0.2, t.shape[0])
     assert detect_falls(x, FS) == []
 

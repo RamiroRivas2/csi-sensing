@@ -98,9 +98,7 @@ def _find_split_dir(root: Path) -> Path:
     for candidate in [root, root / "UT_HAR" / "data", *root.glob("**/")]:
         if (candidate / "X_train.csv").exists():
             return candidate
-    raise FileNotFoundError(
-        f"could not find X_train.csv under {root}; run download_uthar() first"
-    )
+    raise FileNotFoundError(f"could not find X_train.csv under {root}; run download_uthar() first")
 
 
 def _load_split(data_dir: Path, label_dir: Path, name: str) -> tuple[np.ndarray, np.ndarray]:

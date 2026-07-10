@@ -63,13 +63,9 @@ def sample_features(sample: np.ndarray, n_components: int, fs: float) -> np.ndar
     return np.concatenate([_per_channel_stats(sample), spectral])
 
 
-def build_features(
-    X: np.ndarray, n_components: int, fs: float, n_jobs: int = -1
-) -> np.ndarray:
+def build_features(X: np.ndarray, n_components: int, fs: float, n_jobs: int = -1) -> np.ndarray:
     """Feature matrix for a stack of samples, parallelized across CPU cores."""
-    rows = Parallel(n_jobs=n_jobs)(
-        delayed(sample_features)(s, n_components, fs) for s in X
-    )
+    rows = Parallel(n_jobs=n_jobs)(delayed(sample_features)(s, n_components, fs) for s in X)
     return np.stack(rows)
 
 
@@ -138,9 +134,7 @@ def run(config_path: Path) -> None:
         "fully subject-disjoint split. This is the academic-hardware reference point; the "
         "honest comparison is against our own ESP32 data under the identical feature "
         "pipeline.\n\n"
-        "Top features (RF importance): "
-        + ", ".join(f"{n} ({v:.3f})" for n, v in top[:8])
-        + "."
+        "Top features (RF importance): " + ", ".join(f"{n} ({v:.3f})" for n, v in top[:8]) + "."
     )
     write_results_md(
         metrics, out_dir / "results.md", notes, title="exp01 - UT-HAR classical baseline"

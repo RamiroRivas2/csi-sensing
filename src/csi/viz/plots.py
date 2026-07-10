@@ -65,8 +65,13 @@ def plot_confusion_matrix(
     for i in range(len(classes)):
         for j in range(len(classes)):
             ax.text(
-                j, i, f"{int(cm[i, j])}", ha="center", va="center",
-                color="white" if norm[i, j] > 0.5 else "black", fontsize=8,
+                j,
+                i,
+                f"{int(cm[i, j])}",
+                ha="center",
+                va="center",
+                color="white" if norm[i, j] > 0.5 else "black",
+                fontsize=8,
             )
     fig.colorbar(im, ax=ax, fraction=0.046)
     fig.tight_layout()
