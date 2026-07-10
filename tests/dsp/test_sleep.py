@@ -44,6 +44,24 @@ def test_awakenings_counted():
     assert m.restlessness > 0.02
 
 
+def test_sleep_onset_measured():
+    rng = np.random.default_rng(3)
+    fs = FS
+    # 5 minutes of tossing (motion) then 15 minutes still
+    n_move = int(5 * 60 * fs)
+    n_still = int(15 * 60 * fs)
+    t_move = np.arange(n_move) / fs
+    moving = 3.0 * (np.sin(2 * np.pi * 1.5 * t_move) + np.sin(2 * np.pi * 2.8 * t_move + 1))
+    t_still = np.arange(n_still) / fs
+    still = np.sin(2 * np.pi * 0.25 * t_still)
+    base = np.concatenate([moving, still])
+    weights = rng.uniform(0.5, 1.5, 30)
+    amp = np.outer(base, weights) + rng.normal(0, 0.1, (base.shape[0], 30))
+    m = sleep_metrics(amp, fs)
+    assert m.sleep_onset_min is not None
+    assert 4.0 <= m.sleep_onset_min <= 7.0
+
+
 def test_restless_night_scores_worse_than_quiet():
     quiet = sleep_metrics(_night(awakenings=0, seed=1), FS)
     restless = sleep_metrics(_night(awakenings=4, bout_s=90.0, seed=2), FS)

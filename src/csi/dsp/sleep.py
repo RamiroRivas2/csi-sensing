@@ -24,16 +24,17 @@ class SleepMetrics:
     awakenings: int  # distinct motion bouts of >= 30 s while present
     restlessness: float  # fraction of present time spent moving
     longest_still_h: float  # longest uninterrupted still stretch
+    sleep_onset_min: float | None  # time until the first sustained still period
     breathing_median_bpm: float | None
     breathing_iqr_bpm: float | None  # overnight rate spread
 
 
-def sleep_metrics(amp: np.ndarray, fs: float) -> SleepMetrics:
+def sleep_metrics(amp: np.ndarray, fs: float, onset_still_min: float = 10.0) -> SleepMetrics:
     duration_h = amp.shape[0] / fs / 3600
 
     times, activity = activity_timeline(amp, fs, window_s=10.0, hop_s=5.0)
     if not activity:
-        return SleepMetrics(round(duration_h, 2), 0.0, 0.0, 0, 0.0, 0.0, None, None)
+        return SleepMetrics(round(duration_h, 2), 0.0, 0.0, 0, 0.0, 0.0, None, None, None)
 
     states = [a.state for a in activity]
     present = [s != "empty" for s in states]
@@ -66,6 +67,16 @@ def sleep_metrics(amp: np.ndarray, fs: float) -> SleepMetrics:
         longest = max(longest, run_len)
     longest_still_h = longest * hop_s / 3600
 
+    # sleep onset: start of the first still run lasting >= onset_still_min
+    onset_bins = max(1, int(onset_still_min * 60 / hop_s))
+    sleep_onset_min = None
+    run_len = 0
+    for i, s in enumerate(states):
+        run_len = run_len + 1 if s == "still" else 0
+        if run_len == onset_bins:
+            sleep_onset_min = round(float(times[i - onset_bins + 1]) / 60, 1)
+            break
+
     _, breathing = breathing_timeline(amp, fs)
     bpms = [e.bpm for e in breathing if e.confidence > 0.05]
     breathing_median = round(float(np.median(bpms)), 1) if bpms else None
@@ -80,6 +91,7 @@ def sleep_metrics(amp: np.ndarray, fs: float) -> SleepMetrics:
         awakenings=awakenings,
         restlessness=round(restlessness, 3),
         longest_still_h=round(longest_still_h, 2),
+        sleep_onset_min=sleep_onset_min,
         breathing_median_bpm=breathing_median,
         breathing_iqr_bpm=breathing_iqr,
     )
