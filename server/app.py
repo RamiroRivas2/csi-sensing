@@ -302,8 +302,12 @@ LIVE_WINDOW_FRAMES = 1200  # ~60 s at 20 fps kept for rolling bpm estimation
 async def ws_live(ws: WebSocket) -> None:
     """Relay the collector's localhost fanout to a browser WebSocket.
 
-    Forwards each frame verbatim and augments every ~2 s with a rolling breathing
-    estimate over the last LIVE_WINDOW_FRAMES frames.
+    Forwards each well-formed frame and augments every ~2 s with rolling vitals
+    estimates (breathing, experimental heart rate, activity, link quality) over
+    the last LIVE_WINDOW_FRAMES frames, plus deduplicated fall alerts. Garbled
+    fanout lines are skipped, a mid-stream subcarrier-count change resets the
+    rolling window, and a DSP failure skips that estimate tick; none of these
+    drop the connection.
     """
     import numpy as np
 
