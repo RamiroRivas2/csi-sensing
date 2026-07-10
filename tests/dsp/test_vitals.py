@@ -119,8 +119,7 @@ class TestActivity:
         rng = np.random.default_rng(3)
         t = np.arange(int(60 * FS)) / FS
         motion = sum(
-            np.sin(2 * np.pi * f * t + rng.uniform(0, 2 * np.pi))
-            for f in (1.1, 1.9, 2.7, 3.6)
+            np.sin(2 * np.pi * f * t + rng.uniform(0, 2 * np.pi)) for f in (1.1, 1.9, 2.7, 3.6)
         )
         x = _vitals_signal(60.0, noise=0.1) + 2.0 * motion
         est = classify_activity(x, FS)

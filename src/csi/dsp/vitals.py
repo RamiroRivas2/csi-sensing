@@ -116,8 +116,9 @@ def _band_harmonics(
     )
 
 
-def _notch_harmonics(x: np.ndarray, fs: float, fundamental_hz: float, band: tuple[float, float],
-                     q: float = 12.0) -> np.ndarray:
+def _notch_harmonics(
+    x: np.ndarray, fs: float, fundamental_hz: float, band: tuple[float, float], q: float = 12.0
+) -> np.ndarray:
     """Remove every harmonic of ``fundamental_hz`` inside ``band`` with IIR notches."""
     out = x
     for f in _band_harmonics(fundamental_hz, band, fs):

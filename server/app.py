@@ -379,9 +379,7 @@ async def ws_live(ws: WebSocket) -> None:
                     now = time.monotonic()
                     if now - last_dsp_warn >= 30.0:
                         last_dsp_warn = now
-                        logger.warning(
-                            "live DSP tick failed; skipping estimate", exc_info=True
-                        )
+                        logger.warning("live DSP tick failed; skipping estimate", exc_info=True)
                     continue
 
                 await ws.send_json(
