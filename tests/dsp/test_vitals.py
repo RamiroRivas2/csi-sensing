@@ -28,11 +28,35 @@ def _vitals_signal(
     return sig + rng.normal(0, noise, t.shape[0])
 
 
-@pytest.mark.parametrize("heart_bpm", [60.0, 72.0, 90.0, 110.0])
+# Heart rates chosen NOT to coincide exactly with harmonics of the 15 bpm (0.25 Hz)
+# breathing carrier: 60 bpm (1.0 Hz) and 90 bpm (1.5 Hz) sit exactly on the 4th/6th
+# breathing harmonic, where notching correctly removes the real signal too - that
+# exact-collision case is a documented physical limit, not a recoverable rate.
+@pytest.mark.parametrize("heart_bpm", [66.0, 72.0, 84.0, 110.0])
 def test_heart_rate_recovered_within_2bpm(heart_bpm: float):
     x = _vitals_signal(120.0, heart_bpm=heart_bpm)
     est = estimate_heart_rate(x, FS)
     assert abs(est.bpm - heart_bpm) <= 2.0
+
+
+def test_pure_breathing_harmonics_do_not_forge_a_heart_rate():
+    """Non-sinusoidal breathing with NO cardiac component must not report a
+    confident heart rate from its harmonics (the harmonic-confusion failure mode)."""
+    rng = np.random.default_rng(9)
+    t = np.arange(int(120 * FS)) / FS
+    # triangular breathing at 18 bpm (0.3 Hz): rich harmonics into the 0.8-2.2 Hz band
+    breathing = signal_triangle(0.3, t)
+    x = breathing + rng.normal(0, 0.05, t.shape[0])
+    est = estimate_heart_rate(x, FS)
+    # after notching the breathing harmonics, no strong cardiac peak should survive;
+    # if a rate is reported at all it must be low-confidence, not a plausible HR
+    assert est.confidence < 0.5
+
+
+def signal_triangle(freq: float, t: np.ndarray) -> np.ndarray:
+    from scipy.signal import sawtooth
+
+    return sawtooth(2 * np.pi * freq * t, width=0.5)
 
 
 def test_heart_rate_from_matrix():

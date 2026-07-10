@@ -49,6 +49,13 @@ def estimate_rate(
     Band-pass -> Welch PSD -> in-band peak with parabolic interpolation between
     bins (raw Welch resolution quantizes rates to steps coarser than real
     physiological variation).
+
+    Note on ``confidence`` (peak power / total in-band power): it is a *relative*
+    metric, comparable only across windows of the same length. The Welch segment
+    length is min(len, fs*40), so for windows shorter than 40 s the in-band bin
+    count changes with duration and the ratio is not comparable across different
+    window_s settings. Use it to rank windows of one timeline, not as an absolute
+    cross-configuration score.
     """
     x = _first_component(x)
     low, high = band
@@ -76,15 +83,39 @@ def estimate_rate(
     )
 
 
+def _notch_harmonics(x: np.ndarray, fs: float, fundamental_hz: float, band: tuple[float, float],
+                     n_harmonics: int = 6, q: float = 12.0) -> np.ndarray:
+    """Remove a fundamental's harmonics that fall inside ``band`` with IIR notches."""
+    low, high = band
+    out = x
+    for k in range(1, n_harmonics + 1):
+        f = k * fundamental_hz
+        if low <= f <= high and 0 < f < fs / 2:
+            b, a = signal.iirnotch(f, q, fs)
+            out = signal.filtfilt(b, a, out)
+    return out
+
+
 def estimate_heart_rate(
     x: np.ndarray, fs: float, band: tuple[float, float] = HEART_BAND
 ) -> RateEstimate:
     """EXPERIMENTAL heart-rate estimate for a stationary subject.
 
-    The cardiac signal is roughly an order of magnitude weaker than breathing;
-    treat low confidence as "no reading", not as a rate.
+    KNOWN FAILURE MODE (harmonic confusion): breathing is non-sinusoidal, so the
+    3rd-5th harmonics of a normal breathing rate (12-18 bpm) land inside the heart
+    band (0.8-2.2 Hz). Without suppression, pure breathing can masquerade as a
+    confident, physiologically plausible heart rate. To guard against this we first
+    estimate the breathing fundamental and notch its harmonics out of the signal
+    before the heart-band search. This reduces but does not eliminate the confusion;
+    any heart-rate accuracy claim still requires a contact-ECG reference. The cardiac
+    signal is ~an order of magnitude weaker than breathing, so treat low confidence
+    as "no reading", not as a rate.
     """
-    return estimate_rate(x, fs, band)
+    sig = _first_component(x)
+    breathing = estimate_rate(sig, fs, BREATHING_BAND)
+    if breathing.peak_hz > 0:
+        sig = _notch_harmonics(sig, fs, breathing.peak_hz, band)
+    return estimate_rate(sig, fs, band)
 
 
 def rate_timeline(
