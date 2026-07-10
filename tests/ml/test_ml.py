@@ -37,7 +37,7 @@ def _synthetic_dataset(n_per_class: int = 30, seed: int = 0):
 
 def test_rf_separates_synthetic_classes():
     X, y = _synthetic_dataset()
-    F = build_features(X, n_components=3, fs=FS, desc="test")
+    F = build_features(X, n_components=3, fs=FS)
     split = int(len(y) * 0.7)
     idx = np.random.default_rng(1).permutation(len(y))
     tr, te = idx[:split], idx[split:]
@@ -49,7 +49,7 @@ def test_rf_separates_synthetic_classes():
 
 def test_svm_also_works():
     X, y = _synthetic_dataset(n_per_class=20, seed=2)
-    F = build_features(X, n_components=3, fs=FS, desc="test")
+    F = build_features(X, n_components=3, fs=FS)
     split = int(len(y) * 0.7)
     idx = np.random.default_rng(3).permutation(len(y))
     tr, te = idx[:split], idx[split:]

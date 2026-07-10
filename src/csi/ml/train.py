@@ -62,7 +62,7 @@ def sample_features(sample: np.ndarray, n_components: int, fs: float) -> np.ndar
 
 
 def build_features(
-    X: np.ndarray, n_components: int, fs: float, desc: str = "", n_jobs: int = -1
+    X: np.ndarray, n_components: int, fs: float, n_jobs: int = -1
 ) -> np.ndarray:
     """Feature matrix for a stack of samples, parallelized across CPU cores."""
     rows = Parallel(n_jobs=n_jobs)(
@@ -100,23 +100,24 @@ def run(config_path: Path) -> None:
     # train on train+val (published UT-HAR splits are small); evaluate on test
     X_tr = np.concatenate([data.X_train, data.X_val])
     y_tr = np.concatenate([data.y_train, data.y_val])
-    F_tr = build_features(X_tr, cfg.pca_components, UTHAR_FS, "features: train")
-    F_te = build_features(data.X_test, cfg.pca_components, UTHAR_FS, "features: test")
+    F_tr = build_features(X_tr, cfg.pca_components, UTHAR_FS)
+    F_te = build_features(data.X_test, cfg.pca_components, UTHAR_FS)
 
     classes = list(data.classes)
     metrics = {}
+    fitted = {}
     for name, model in (
         ("random_forest", make_rf(cfg.rf)),
         ("svm_rbf", make_svm(cfg.svm)),
     ):
         model.fit(F_tr, y_tr)
+        fitted[name] = model
         m = evaluate(data.y_test, model.predict(F_te), classes)
         metrics[name] = m
         print(f"{name}: accuracy {m.accuracy:.3f}, macro F1 {m.macro_f1:.3f}")
 
     # feature importances from the RF for the writeup
-    rf = make_rf(cfg.rf).fit(F_tr, y_tr)
-    importances = rf.named_steps["rf"].feature_importances_
+    importances = fitted["random_forest"].named_steps["rf"].feature_importances_
     top = sorted(zip(feat_names, importances, strict=True), key=lambda kv: -kv[1])[:15]
 
     write_metrics_json(metrics, out_dir / "metrics.json")
@@ -139,7 +140,9 @@ def run(config_path: Path) -> None:
         + ", ".join(f"{n} ({v:.3f})" for n, v in top[:8])
         + "."
     )
-    write_results_md(metrics, out_dir / "results.md", notes)
+    write_results_md(
+        metrics, out_dir / "results.md", notes, title="exp01 - UT-HAR classical baseline"
+    )
     (out_dir / "feature_importances.json").write_text(
         json.dumps([{"feature": n, "importance": float(v)} for n, v in top], indent=2)
     )

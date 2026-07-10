@@ -42,9 +42,11 @@ def write_metrics_json(metrics: dict[str, Metrics], path: Path) -> None:
     path.write_text(json.dumps({k: asdict(v) for k, v in metrics.items()}, indent=2))
 
 
-def write_results_md(metrics: dict[str, Metrics], path: Path, notes: str = "") -> None:
+def write_results_md(
+    metrics: dict[str, Metrics], path: Path, notes: str = "", title: str = "Results"
+) -> None:
     classes = next(iter(metrics.values())).classes
-    lines = ["# exp01 - UT-HAR classical baseline", ""]
+    lines = [f"# {title}", ""]
     if notes:
         lines += [notes, ""]
 

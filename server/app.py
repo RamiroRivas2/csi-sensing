@@ -31,6 +31,7 @@ from csi.dsp.vitals import (
     estimate_heart_rate,
     rate_timeline,
 )
+from csi.io.writer import load_session
 from server import registry
 from server.arrays import MAX_COLS_DEFAULT, binary_response, downsample_time
 
@@ -200,10 +201,13 @@ def session_quality(session_id: str) -> dict:
 
 
 @lru_cache(maxsize=256)
-def _night_metrics(session_id: str) -> dict:
-    # session files are immutable once written, so caching by id is safe
-    s = registry.get_session(session_id)
+def _night_metrics(session_path: str) -> dict:
+    # session files are immutable once written, so caching by resolved path is safe
+    s = load_session(Path(session_path))
     return sleep_metrics(s.amp, s.fs).__dict__
+
+
+MIN_NIGHT_S = 3 * 3600  # anything shorter is a daytime recording, not a night
 
 
 @app.get("/api/wellbeing")
@@ -218,9 +222,11 @@ def wellbeing() -> dict:
 
     nights = []
     for info in registry.list_sessions():
-        if info.duration_s < 60:  # too short to say anything about sleep
+        if info.duration_s < MIN_NIGHT_S:
             continue
-        nights.append({"id": info.id, "started_at": info.started_at, **_night_metrics(info.id)})
+        path = registry.session_path(info.id)
+        nights.append({"id": info.id, "started_at": info.started_at, **_night_metrics(str(path))})
+    nights.sort(key=lambda n: n["started_at"] or n["id"])
 
     flags: list[dict] = []
     baseline_ready = len(nights) >= 7
@@ -331,10 +337,12 @@ async def ws_live(ws: WebSocket) -> None:
                 last_estimate = times[-1]
                 fs = (len(times) - 1) / span
                 matrix = np.asarray(window)
-                breathing = estimate_breathing_rate(matrix, fs)
-                heart = estimate_heart_rate(matrix, fs)
-                activity = classify_activity(matrix, fs)
-                quality = link_quality(matrix, fs)
+                _, components = pca_denoise(matrix, n_components=1)
+                comp = components[:, 0]
+                breathing = estimate_breathing_rate(comp, fs)
+                heart = estimate_heart_rate(comp, fs)
+                activity = classify_activity(comp, fs)
+                quality = link_quality(comp, fs)
                 await ws.send_json(
                     {
                         "type": "vitals",
@@ -351,7 +359,7 @@ async def ws_live(ws: WebSocket) -> None:
                     }
                 )
 
-                for event in detect_falls(matrix, fs):
+                for event in detect_falls(comp, fs):
                     wall_t = times[0] + event.t
                     if wall_t > last_fall_wall_t + 10.0:  # dedupe across rolling windows
                         last_fall_wall_t = wall_t

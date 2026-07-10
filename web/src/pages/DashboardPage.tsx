@@ -71,6 +71,14 @@ export function DashboardPage() {
   const heartUsable = vitals !== null && vitals.state === 'still' && vitals.heart_confidence > 0.1
   const stateColor =
     vitals?.state === 'still' ? 'ok' : vitals?.state === 'moving' ? 'warn' : 'muted'
+  const qualityTone =
+    vitals === null
+      ? null
+      : vitals.quality_verdict === 'excellent' || vitals.quality_verdict === 'good'
+        ? 'ok'
+        : vitals.quality_verdict === 'fair'
+          ? 'warn'
+          : 'bad'
 
   return (
     <div>
@@ -134,15 +142,7 @@ export function DashboardPage() {
         </div>
         <div className="stat-card">
           <div className="stat-card-label">link quality</div>
-          <div
-            className={`stat-card-value ${
-              vitals && vitals.quality_score >= 60
-                ? 'state-ok'
-                : vitals && vitals.quality_score >= 30
-                  ? 'state-warn'
-                  : ''
-            }`}
-          >
+          <div className={`stat-card-value ${qualityTone ? `state-${qualityTone}` : ''}`}>
             {vitals ? vitals.quality_score : '--'} <small>/ 100</small>
           </div>
           <div className="quality-meter">
@@ -150,9 +150,9 @@ export function DashboardPage() {
               style={{
                 width: `${vitals?.quality_score ?? 0}%`,
                 background:
-                  vitals && vitals.quality_score >= 60
+                  qualityTone === 'ok'
                     ? 'var(--good)'
-                    : vitals && vitals.quality_score >= 30
+                    : qualityTone === 'warn'
                       ? 'var(--warn)'
                       : 'var(--danger)',
               }}

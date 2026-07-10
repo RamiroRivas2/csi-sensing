@@ -175,6 +175,7 @@ h2 {
 .stat-card-value small { font-size: 13px; color: var(--muted); font-weight: 500; }
 .stat-card-value.state-ok { color: var(--good); }
 .stat-card-value.state-warn { color: var(--warn); }
+.stat-card-value.state-bad { color: var(--danger); }
 .stat-card-value.state-muted { color: var(--muted); }
 
 .stat-card-sub { font-size: 12px; color: var(--faint); }

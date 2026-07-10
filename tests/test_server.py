@@ -87,10 +87,29 @@ def test_sleep_endpoint(client):
     assert body["awakenings"] == 0
 
 
-def test_wellbeing_endpoint(client):
+def _save_overnight(tmp_path, name: str, started_at: str, seed: int) -> None:
+    rng = np.random.default_rng(seed)
+    fs = 2.0
+    t = np.arange(int(3.5 * 3600 * fs)) / fs
+    breathing = np.sin(2 * np.pi * 0.25 * t)
+    amp = 20 + 2 * np.outer(breathing, rng.uniform(0.5, 1.5, 16))
+    amp = (amp + rng.normal(0, 0.3, amp.shape)).astype(np.float32)
+    save_session(
+        tmp_path / "esp32" / f"{name}.npz",
+        Session(amp=amp, fs=fs, meta=SessionMeta(dataset="esp32", started_at=started_at)),
+    )
+
+
+def test_wellbeing_endpoint(client, tmp_path):
     body = client.get("/api/wellbeing").json()
-    assert body["baseline_ready"] is False  # only one night recorded
-    assert len(body["nights"]) == 1
+    assert body["nights"] == []  # the 60 s demo session is too short to count as a night
+
+    _save_overnight(tmp_path, "night_b", "2026-07-08T22:00:00Z", seed=1)
+    _save_overnight(tmp_path, "night_a", "2026-07-09T22:00:00Z", seed=2)
+    body = client.get("/api/wellbeing").json()
+    # ordered by started_at, not by file path (night_a sorts first lexicographically)
+    assert [n["id"] for n in body["nights"]] == ["esp32/night_b", "esp32/night_a"]
+    assert body["baseline_ready"] is False
     assert body["flags"] == []
 
 

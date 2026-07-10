@@ -55,11 +55,15 @@ def _load_cached(resolved: str) -> Session:
     return load_session(Path(resolved))
 
 
-def get_session(session_id: str, root: Path | None = None) -> Session:
+def session_path(session_id: str, root: Path | None = None) -> Path:
     root = root if root is not None else DATA_ROOT
     path = (root / session_id).with_suffix(".npz").resolve()
     if root.resolve() not in path.parents and path.parent != root.resolve():
         raise FileNotFoundError(session_id)  # no path traversal
     if not path.exists():
         raise FileNotFoundError(session_id)
-    return _load_cached(str(path))
+    return path
+
+
+def get_session(session_id: str, root: Path | None = None) -> Session:
+    return _load_cached(str(session_path(session_id, root)))

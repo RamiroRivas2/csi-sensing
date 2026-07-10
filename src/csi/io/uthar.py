@@ -16,6 +16,7 @@ comparison. It is only pulled on demand; it is never committed (data/ is gitigno
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -39,7 +40,14 @@ N_CHANNELS = 90  # 3 antenna pairs x 30 subcarriers
 SENSEFI_DRIVE_FOLDER = "1R0R8SlVbLI1iUFQCzh_mH90H_4CW2iwt"
 UTHAR_ZIP_FILE_ID = "1fEiI3nAoOsddR5qcJQXqz4ocM3aMAcwz"
 DEFAULT_ROOT = Path("data/raw/uthar")
-CACHE = Path("data/processed/uthar/uthar.npz")
+CACHE_DIR = Path("data/processed/uthar")
+
+
+def _cache_path(root: Path) -> Path:
+    if root.resolve() == DEFAULT_ROOT.resolve():
+        return CACHE_DIR / "uthar.npz"
+    digest = hashlib.sha1(str(root.resolve()).encode()).hexdigest()[:12]
+    return CACHE_DIR / f"uthar-{digest}.npz"
 
 
 @dataclass
@@ -105,8 +113,9 @@ def _load_split(data_dir: Path, label_dir: Path, name: str) -> tuple[np.ndarray,
 
 def load_uthar(root: Path = DEFAULT_ROOT, use_cache: bool = True) -> UTHARData:
     """Load UT-HAR, caching the parsed arrays to an npz so CSVs parse once."""
-    if use_cache and CACHE.exists():
-        with np.load(CACHE) as d:
+    cache = _cache_path(root)
+    if use_cache and cache.exists():
+        with np.load(cache) as d:
             return UTHARData(
                 d["X_train"], d["y_train"], d["X_val"], d["y_val"], d["X_test"], d["y_test"]
             )
@@ -120,9 +129,9 @@ def load_uthar(root: Path = DEFAULT_ROOT, use_cache: bool = True) -> UTHARData:
     X_val, y_val = _load_split(data_dir, label_dir, "val")
     X_test, y_test = _load_split(data_dir, label_dir, "test")
 
-    CACHE.parent.mkdir(parents=True, exist_ok=True)
+    cache.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
-        CACHE,
+        cache,
         X_train=X_train,
         y_train=y_train,
         X_val=X_val,
