@@ -94,5 +94,11 @@ def test_wellbeing_endpoint(client):
     assert body["flags"] == []
 
 
+def test_quality_endpoint(client):
+    body = client.get("/api/sessions/esp32/demo/quality").json()
+    assert body["verdict"] in ("excellent", "good")
+    assert body["score"] > 50
+
+
 def test_unknown_session_404(client):
     assert client.get("/api/sessions/nope/csi").status_code == 404

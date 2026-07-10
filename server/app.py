@@ -20,6 +20,7 @@ from csi.dsp.breathing import breathing_timeline, estimate_breathing_rate
 from csi.dsp.falls import detect_falls
 from csi.dsp.features import spectrogram as make_spectrogram
 from csi.dsp.filters import bandpass_filter, hampel_filter, pca_denoise
+from csi.dsp.quality import link_quality
 from csi.dsp.sleep import sleep_metrics
 from csi.dsp.vitals import (
     HEART_BAND,
@@ -189,6 +190,13 @@ def session_sleep(session_id: str) -> dict:
     return sleep_metrics(s.amp, s.fs).__dict__
 
 
+@app.get("/api/sessions/{session_id:path}/quality")
+def session_quality(session_id: str) -> dict:
+    """Breathing-band SNR and placement verdict for one session."""
+    s = _get(session_id)
+    return link_quality(s.amp, s.fs).__dict__
+
+
 @app.get("/api/wellbeing")
 def wellbeing() -> dict:
     """Sleep metrics across all recorded nights, with baseline-deviation flags.
@@ -305,6 +313,7 @@ async def ws_live(ws: WebSocket) -> None:
                 breathing = estimate_breathing_rate(matrix, fs)
                 heart = estimate_heart_rate(matrix, fs)
                 activity = classify_activity(matrix, fs)
+                quality = link_quality(matrix, fs)
                 await ws.send_json(
                     {
                         "type": "vitals",
@@ -315,6 +324,9 @@ async def ws_live(ws: WebSocket) -> None:
                         "state": activity.state,
                         "presence": activity.presence_score,
                         "motion": activity.motion_score,
+                        "snr_db": quality.snr_db,
+                        "quality_score": quality.score,
+                        "quality_verdict": quality.verdict,
                     }
                 )
 
