@@ -17,8 +17,10 @@ from fastapi.responses import Response
 
 from collector.collector import FANOUT_HOST, FANOUT_PORT
 from csi.dsp.breathing import breathing_timeline, estimate_breathing_rate
+from csi.dsp.falls import detect_falls
 from csi.dsp.features import spectrogram as make_spectrogram
 from csi.dsp.filters import bandpass_filter, hampel_filter, pca_denoise
+from csi.dsp.sleep import sleep_metrics
 from csi.dsp.vitals import (
     HEART_BAND,
     activity_timeline,
@@ -162,6 +164,82 @@ def session_vitals(session_id: str) -> dict:
     }
 
 
+@app.get("/api/sessions/{session_id:path}/falls")
+def session_falls(session_id: str) -> dict:
+    """Burst-then-stillness fall candidates. Research-grade, not a safety device."""
+    s = _get(session_id)
+    events = detect_falls(s.amp, s.fs)
+    return {
+        "events": [
+            {
+                "t": round(e.t, 1),
+                "severity": e.severity,
+                "stillness_after": e.stillness_after,
+                "confidence": e.confidence,
+            }
+            for e in events
+        ]
+    }
+
+
+@app.get("/api/sessions/{session_id:path}/sleep")
+def session_sleep(session_id: str) -> dict:
+    """Sleep-quality metrics for one session."""
+    s = _get(session_id)
+    return sleep_metrics(s.amp, s.fs).__dict__
+
+
+@app.get("/api/wellbeing")
+def wellbeing() -> dict:
+    """Sleep metrics across all recorded nights, with baseline-deviation flags.
+
+    Indicators only: sustained deviations in sleep efficiency, restlessness, or
+    awakenings correlate with mood in the literature, but nothing here is a
+    diagnosis of anything.
+    """
+    import numpy as np
+
+    nights = []
+    for info in registry.list_sessions():
+        if info.duration_s < 60:  # too short to say anything about sleep
+            continue
+        s = registry.get_session(info.id)
+        m = sleep_metrics(s.amp, s.fs)
+        nights.append({"id": info.id, "started_at": info.started_at, **m.__dict__})
+
+    flags: list[dict] = []
+    baseline_ready = len(nights) >= 7
+    if baseline_ready:
+        recent, baseline = nights[-3:], nights[:-3]
+
+        def series(rows: list[dict], key: str) -> list[float]:
+            return [r[key] for r in rows if r.get(key) is not None]
+
+        for key, direction, label in (
+            ("sleep_efficiency", -1, "sleep efficiency dropping"),
+            ("restlessness", +1, "restlessness rising"),
+            ("awakenings", +1, "more awakenings"),
+        ):
+            base_vals, recent_vals = series(baseline, key), series(recent, key)
+            if not base_vals or not recent_vals:
+                continue
+            base_mean = float(np.mean(base_vals))
+            recent_mean = float(np.mean(recent_vals))
+            spread = float(np.std(base_vals)) or 1e-9
+            drift = (recent_mean - base_mean) * direction
+            if drift > max(2 * spread, 0.15 * abs(base_mean)):
+                flags.append(
+                    {
+                        "metric": key,
+                        "message": label,
+                        "baseline": round(base_mean, 2),
+                        "recent": round(recent_mean, 2),
+                    }
+                )
+
+    return {"nights": nights, "baseline_ready": baseline_ready, "flags": flags}
+
+
 @app.get("/api/sessions/{session_id:path}")
 def session_meta(session_id: str) -> dict:
     s = _get(session_id)
@@ -203,6 +281,7 @@ async def ws_live(ws: WebSocket) -> None:
     window: list[list[float]] = []
     times: list[float] = []
     last_estimate = 0.0
+    last_fall_wall_t = 0.0
     try:
         while True:
             line = await reader.readline()
@@ -238,6 +317,19 @@ async def ws_live(ws: WebSocket) -> None:
                         "motion": activity.motion_score,
                     }
                 )
+
+                for event in detect_falls(matrix, fs):
+                    wall_t = times[0] + event.t
+                    if wall_t > last_fall_wall_t + 10.0:  # dedupe across rolling windows
+                        last_fall_wall_t = wall_t
+                        await ws.send_json(
+                            {
+                                "type": "fall_alert",
+                                "t": wall_t,
+                                "severity": event.severity,
+                                "confidence": event.confidence,
+                            }
+                        )
     except (WebSocketDisconnect, ConnectionResetError):
         pass
     finally:

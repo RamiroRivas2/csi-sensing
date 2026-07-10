@@ -76,5 +76,23 @@ def test_vitals(client):
     assert "still" in states
 
 
+def test_falls_endpoint(client):
+    body = client.get("/api/sessions/esp32/demo/falls").json()
+    assert body["events"] == []  # quiet breathing session has no falls
+
+
+def test_sleep_endpoint(client):
+    body = client.get("/api/sessions/esp32/demo/sleep").json()
+    assert body["sleep_efficiency"] > 0.9
+    assert body["awakenings"] == 0
+
+
+def test_wellbeing_endpoint(client):
+    body = client.get("/api/wellbeing").json()
+    assert body["baseline_ready"] is False  # only one night recorded
+    assert len(body["nights"]) == 1
+    assert body["flags"] == []
+
+
 def test_unknown_session_404(client):
     assert client.get("/api/sessions/nope/csi").status_code == 404
