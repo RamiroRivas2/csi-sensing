@@ -12,7 +12,8 @@ def client(tmp_path, monkeypatch):
     rng = np.random.default_rng(0)
     t = np.arange(1200) / 20.0
     breathing = np.sin(2 * np.pi * 0.25 * t)  # 15 bpm
-    amp = 20 + 2 * np.outer(breathing, rng.uniform(0.5, 1.5, 64))
+    heartbeat = 0.15 * np.sin(2 * np.pi * 1.2 * t)  # 72 bpm, much weaker
+    amp = 20 + 2 * np.outer(breathing + heartbeat, rng.uniform(0.5, 1.5, 64))
     amp = (amp + rng.normal(0, 0.3, amp.shape)).astype(np.float32)
     save_session(
         tmp_path / "esp32" / "demo.npz",
@@ -63,6 +64,16 @@ def test_breathing_timeline(client):
     bpms = [p["bpm"] for p in body["points"]]
     assert len(bpms) > 0
     assert abs(np.median(bpms) - 15.0) <= 1.0
+
+
+def test_vitals(client):
+    body = client.get("/api/sessions/esp32/demo/vitals").json()
+    assert abs(body["summary"]["breathing_median_bpm"] - 15.0) <= 1.0
+    assert abs(body["summary"]["heart_median_bpm"] - 72.0) <= 3.0
+    assert body["summary"]["presence_fraction"] > 0.9
+    assert body["summary"]["motion_fraction"] < 0.2
+    states = {a["state"] for a in body["activity"]}
+    assert "still" in states
 
 
 def test_unknown_session_404(client):

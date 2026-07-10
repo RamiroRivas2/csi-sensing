@@ -19,6 +19,13 @@ from collector.collector import FANOUT_HOST, FANOUT_PORT
 from csi.dsp.breathing import breathing_timeline, estimate_breathing_rate
 from csi.dsp.features import spectrogram as make_spectrogram
 from csi.dsp.filters import bandpass_filter, hampel_filter, pca_denoise
+from csi.dsp.vitals import (
+    HEART_BAND,
+    activity_timeline,
+    classify_activity,
+    estimate_heart_rate,
+    rate_timeline,
+)
 from server import registry
 from server.arrays import MAX_COLS_DEFAULT, binary_response, downsample_time
 
@@ -108,6 +115,53 @@ def session_breathing(session_id: str, window_s: float = 30.0, hop_s: float = 5.
     }
 
 
+@app.get("/api/sessions/{session_id:path}/vitals")
+def session_vitals(session_id: str) -> dict:
+    """Breathing, heart-rate (experimental), and activity timelines plus summary stats."""
+    import numpy as np
+
+    s = _get(session_id)
+    _, components = pca_denoise(s.amp, n_components=1)
+    comp = components[:, 0]
+
+    b_times, b_est = breathing_timeline(comp, s.fs, window_s=30.0, hop_s=5.0)
+    h_times, h_est = rate_timeline(comp, s.fs, HEART_BAND, window_s=20.0, hop_s=5.0)
+    a_times, a_est = activity_timeline(comp, s.fs, window_s=10.0, hop_s=5.0)
+
+    def points(times, estimates):
+        return [
+            {"t": float(t), "bpm": round(e.bpm, 2), "confidence": round(e.confidence, 3)}
+            for t, e in zip(times, estimates, strict=True)
+        ]
+
+    summary: dict = {"duration_s": round(s.duration_s, 1)}
+    if b_est:
+        summary["breathing_median_bpm"] = round(float(np.median([e.bpm for e in b_est])), 1)
+        summary["breathing_confidence"] = round(float(np.median([e.confidence for e in b_est])), 2)
+    if h_est:
+        summary["heart_median_bpm"] = round(float(np.median([e.bpm for e in h_est])), 1)
+        summary["heart_confidence"] = round(float(np.median([e.confidence for e in h_est])), 2)
+    if a_est:
+        states = [e.state for e in a_est]
+        summary["presence_fraction"] = round(1 - states.count("empty") / len(states), 2)
+        summary["motion_fraction"] = round(states.count("moving") / len(states), 2)
+
+    return {
+        "breathing": points(b_times, b_est),
+        "heart": points(h_times, h_est),
+        "activity": [
+            {
+                "t": float(t),
+                "state": e.state,
+                "presence": e.presence_score,
+                "motion": e.motion_score,
+            }
+            for t, e in zip(a_times, a_est, strict=True)
+        ],
+        "summary": summary,
+    }
+
+
 @app.get("/api/sessions/{session_id:path}")
 def session_meta(session_id: str) -> dict:
     s = _get(session_id)
@@ -168,12 +222,20 @@ async def ws_live(ws: WebSocket) -> None:
             if span > 20.0 and times[-1] - last_estimate >= 2.0:
                 last_estimate = times[-1]
                 fs = (len(times) - 1) / span
-                est = estimate_breathing_rate(np.asarray(window), fs)
+                matrix = np.asarray(window)
+                breathing = estimate_breathing_rate(matrix, fs)
+                heart = estimate_heart_rate(matrix, fs)
+                activity = classify_activity(matrix, fs)
                 await ws.send_json(
                     {
-                        "type": "breathing",
-                        "bpm": round(est.bpm, 1),
-                        "confidence": round(est.confidence, 3),
+                        "type": "vitals",
+                        "breathing_bpm": round(breathing.bpm, 1),
+                        "breathing_confidence": round(breathing.confidence, 3),
+                        "heart_bpm": round(heart.bpm, 1),
+                        "heart_confidence": round(heart.confidence, 3),
+                        "state": activity.state,
+                        "presence": activity.presence_score,
+                        "motion": activity.motion_score,
                     }
                 )
     except (WebSocketDisconnect, ConnectionResetError):
