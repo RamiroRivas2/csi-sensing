@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+from functools import lru_cache
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
@@ -197,6 +198,13 @@ def session_quality(session_id: str) -> dict:
     return link_quality(s.amp, s.fs).__dict__
 
 
+@lru_cache(maxsize=256)
+def _night_metrics(session_id: str) -> dict:
+    # session files are immutable once written, so caching by id is safe
+    s = registry.get_session(session_id)
+    return sleep_metrics(s.amp, s.fs).__dict__
+
+
 @app.get("/api/wellbeing")
 def wellbeing() -> dict:
     """Sleep metrics across all recorded nights, with baseline-deviation flags.
@@ -211,9 +219,7 @@ def wellbeing() -> dict:
     for info in registry.list_sessions():
         if info.duration_s < 60:  # too short to say anything about sleep
             continue
-        s = registry.get_session(info.id)
-        m = sleep_metrics(s.amp, s.fs)
-        nights.append({"id": info.id, "started_at": info.started_at, **m.__dict__})
+        nights.append({"id": info.id, "started_at": info.started_at, **_night_metrics(info.id)})
 
     flags: list[dict] = []
     baseline_ready = len(nights) >= 7
