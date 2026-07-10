@@ -5,8 +5,11 @@ passive sensor: human motion, down to the chest movement of breathing, disturbs 
 propagation, and that disturbance is readable in per-subcarrier amplitude. No cameras, no
 microphones, no wearables.
 
-First target: an overnight sleep/breathing monitor. Roadmap: fall detection, presence sensing,
-camera-supervised CSI labeling research, and a low-cost 2-node bedside kit.
+First target: an overnight sleep/breathing monitor. Working today as research-grade DSP:
+breathing and (experimental) heart-rate estimation, activity/presence classification,
+burst-then-stillness fall detection (not a certified safety device), overnight sleep metrics
+with wellbeing trends, and a breathing-band link-quality score for node placement.
+Roadmap: camera-supervised CSI labeling research and a low-cost 2-node bedside kit.
 
 Everything runs CPU-only: 1D signal processing (scipy) + classical ML (scikit-learn).
 No deep learning dependencies.
@@ -19,13 +22,13 @@ ESP32-S3 TX (csi_send) --WiFi multipath--> ESP32-S3 RX (csi_recv)
        collector --> data/processed/*.npz sessions
        collector --> live fanout --> FastAPI /ws/live
        sessions + dsp --> FastAPI REST (binary float32)
-       FastAPI --> React dashboard (live heatmap, DSP inspector, breathing timeline)
+       FastAPI --> React dashboard (live heatmap, vitals, sleep, DSP inspector, experiments)
 ```
 
-- `src/csi/io` - ESP32 serial frame parser, canonical session reader/writer
-- `src/csi/dsp` - filters, windowing, features, breathing-rate extractor (no ML)
-- `src/csi/ml` - Random Forest / SVM baselines
-- `src/csi/viz` - matplotlib plots
+- `src/csi/io` - ESP32 serial frame parser, canonical session reader/writer, UT-HAR loader
+- `src/csi/dsp` - filters, windowing, features, breathing/vitals, falls, sleep, link quality (no ML)
+- `src/csi/ml` - Random Forest / SVM baselines and the UT-HAR training pipeline (exp01)
+- `src/csi/viz` - matplotlib publication plots
 - `collector/` - ingest service: serial (or replay log) to sessions + live stream
 - `server/` - FastAPI backend for the dashboard
 - `web/` - React + Vite + TypeScript dashboard

@@ -16,7 +16,7 @@ uv run python -m collector.collector --port /dev/ttyACM0 --room bedroom \
     --node-positions "TX:(0,0) RX:(2.5,0)" --occupants ramiro dog1 dog2
 
 # no hardware: replay a captured or synthetic log at real-time speed
-uv run python scripts/make_synthetic_log.py
+uv run python scripts/make_synthetic_log.py           # add --fall-at 60 to inject a fall burst
 uv run python -m collector.collector --replay data/raw/synthetic_15bpm.log
 ```
 

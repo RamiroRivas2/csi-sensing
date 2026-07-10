@@ -3,11 +3,13 @@
     uv run python -m csi.ml.train --config experiments/exp01_uthar_rf/config.json
 
 Feature pipeline per sample (250 x 90 amplitude matrix):
-  PCA across the 90 channels -> top components -> per-component DSP feature vector
+  per-channel temporal statistics (mean/std/min/max/ptp/median for all 90 channels)
+  + PCA across the 90 channels -> per-component DSP feature vector
   (dominant freq, band energies, statistical moments) -> concatenate.
 
-This mirrors the exact feature stack used on live ESP32 data, so exp01's numbers
-are directly comparable to the own-hardware results in the ESP32-vs-academic study.
+The spectral half mirrors the exact feature stack used on live ESP32 data, so
+exp01's numbers are comparable to the own-hardware results in the ESP32-vs-academic
+study.
 """
 
 from __future__ import annotations
