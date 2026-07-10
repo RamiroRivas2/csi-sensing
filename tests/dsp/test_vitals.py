@@ -6,6 +6,7 @@ from csi.dsp.vitals import (
     classify_activity,
     estimate_heart_rate,
     estimate_rate,
+    heart_rate_timeline,
     rate_timeline,
 )
 
@@ -80,6 +81,25 @@ def test_rate_timeline_shapes():
     x = _vitals_signal(120.0)
     times, estimates = rate_timeline(x, FS, (0.8, 2.2), window_s=20.0, hop_s=5.0)
     assert len(times) == len(estimates) > 0
+
+
+def test_heart_rate_timeline_recovers_real_rate():
+    x = _vitals_signal(120.0, heart_bpm=72.0)
+    times, estimates = heart_rate_timeline(x, FS, window_s=20.0, hop_s=5.0)
+    assert len(times) == len(estimates) > 0
+    assert abs(np.median([e.bpm for e in estimates]) - 72.0) <= 3.0
+
+
+def test_heart_rate_timeline_resists_pure_breathing_forgery():
+    """The per-window timeline must apply the same breathing-harmonic notch as
+    estimate_heart_rate, so pure breathing yields only low-confidence windows."""
+    rng = np.random.default_rng(9)
+    t = np.arange(int(120 * FS)) / FS
+    breathing = signal_triangle(0.3, t)
+    x = breathing + rng.normal(0, 0.05, t.shape[0])
+    times, estimates = heart_rate_timeline(x, FS, window_s=20.0, hop_s=5.0)
+    assert len(times) == len(estimates) > 0
+    assert np.median([e.confidence for e in estimates]) < 0.5
 
 
 class TestActivity:

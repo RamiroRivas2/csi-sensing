@@ -80,6 +80,25 @@ def test_vitals(client):
     assert "still" in states
 
 
+def test_vitals_heart_path_resists_pure_breathing_forgery(client, tmp_path):
+    """A recorded session of pure non-sinusoidal breathing (no cardiac component)
+    must not produce a confident heart-rate summary via /vitals."""
+    from scipy.signal import sawtooth
+
+    rng = np.random.default_rng(7)
+    fs = 20.0
+    t = np.arange(int(120 * fs)) / fs
+    breathing = sawtooth(2 * np.pi * 0.3 * t, width=0.5)  # triangular 18 bpm
+    amp = 20 + 2 * np.outer(breathing, rng.uniform(0.5, 1.5, 64))
+    amp = (amp + rng.normal(0, 0.1, amp.shape)).astype(np.float32)
+    save_session(
+        tmp_path / "esp32" / "breath_only.npz",
+        Session(amp=amp, fs=fs, meta=SessionMeta(dataset="esp32", label="breath_only")),
+    )
+    body = client.get("/api/sessions/esp32/breath_only/vitals").json()
+    assert body["summary"]["heart_confidence"] < 0.5
+
+
 def test_falls_endpoint(client):
     body = client.get("/api/sessions/esp32/demo/falls").json()
     assert body["events"] == []  # quiet breathing session has no falls

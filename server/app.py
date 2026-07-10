@@ -27,11 +27,10 @@ from csi.dsp.filters import bandpass_filter, hampel_filter, pca_denoise
 from csi.dsp.quality import link_quality
 from csi.dsp.sleep import sleep_metrics
 from csi.dsp.vitals import (
-    HEART_BAND,
     activity_timeline,
     classify_activity,
     estimate_heart_rate,
-    rate_timeline,
+    heart_rate_timeline,
 )
 from csi.io.writer import load_session
 from server import registry
@@ -134,7 +133,7 @@ def session_vitals(session_id: str) -> dict:
     comp = components[:, 0]
 
     b_times, b_est = breathing_timeline(comp, s.fs, window_s=30.0, hop_s=5.0)
-    h_times, h_est = rate_timeline(comp, s.fs, HEART_BAND, window_s=20.0, hop_s=5.0)
+    h_times, h_est = heart_rate_timeline(comp, s.fs, window_s=20.0, hop_s=5.0)
     a_times, a_est = activity_timeline(comp, s.fs, window_s=10.0, hop_s=5.0)
 
     def points(times, estimates):
