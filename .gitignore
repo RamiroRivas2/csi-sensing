@@ -1,0 +1,26 @@
+# data is never committed - storage is cheap locally, the repo is not
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+
+# node
+node_modules/
+web/dist/
+
+# esp-idf build artifacts live outside the repo (~/esp), but just in case
+firmware/build/
+sdkconfig.old
+
+# editors / os
+.DS_Store
+*.swp
