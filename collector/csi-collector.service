@@ -1,0 +1,18 @@
+# systemd unit for the Raspberry Pi 5 deployment.
+# Install:
+#   sudo cp collector/csi-collector.service /etc/systemd/system/
+#   sudo systemctl enable --now csi-collector
+[Unit]
+Description=WiFi CSI collector (ESP32 serial -> session files + live fanout)
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/csi-sensing
+ExecStart=/home/pi/.local/bin/uv run python -m collector.collector --port /dev/ttyACM0 --room bedroom
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
