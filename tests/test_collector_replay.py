@@ -31,9 +31,10 @@ def test_replay_to_session_to_breathing(tmp_path, monkeypatch):
     assert session.n_subcarriers == 64
     assert session.amp.shape[0] > 1000
 
-    # the replayed stream compresses 90 s of signal into a faster wall clock, so
-    # evaluate breathing against the original sample rate, not the replay rate
-    est = estimate_breathing_rate(session.amp, FS)
+    # session timing must come from the frames' own radio timestamps, not from
+    # the (much faster) replay pacing, so the stored fs is the original rate
+    assert abs(session.fs - FS) < 0.5
+    est = estimate_breathing_rate(session.amp, session.fs)
     assert abs(est.bpm - 15.0) <= 1.0
 
     raw_logs = list((tmp_path / "raw").glob("*.log"))

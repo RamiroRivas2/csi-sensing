@@ -33,6 +33,7 @@ from csi.io.writer import Session, SessionMeta, save_session
 
 FANOUT_HOST = "127.0.0.1"
 FANOUT_PORT = 8765
+SEND_TIMEOUT_S = 0.2  # a subscriber that blocks longer than this is dropped
 
 
 @dataclass
@@ -40,7 +41,7 @@ class CollectorConfig:
     port: str | None = None  # serial device, e.g. /dev/ttyACM0
     baud: int = 921600
     replay: Path | None = None  # replay a captured log instead of reading serial
-    replay_fs: float = 20.0  # frames per second to emit in replay mode
+    replay_fs: float = 20.0  # playback pacing only; frame timing comes from the log
     out_dir: Path = Path("data/processed/esp32")
     raw_dir: Path = Path("data/raw/esp32")
     rotate_s: float = 600.0  # session file length
@@ -70,6 +71,9 @@ class LiveFanout:
                 continue
             except OSError:
                 return
+            # bound sendall: a stalled subscriber must never block the ingest
+            # loop (serial reads, raw logging, rotation) behind a full TCP buffer
+            client.settimeout(SEND_TIMEOUT_S)
             with self._lock:
                 self._clients.append(client)
 
@@ -88,7 +92,7 @@ class LiveFanout:
             for client in self._clients[:]:
                 try:
                     client.sendall(payload)
-                except OSError:
+                except OSError:  # includes TimeoutError: drop slow/dead clients
                     self._clients.remove(client)
                     client.close()
 
@@ -150,16 +154,30 @@ def _iter_serial(cfg: CollectorConfig):
         while True:
             line = dev.readline().decode(errors="replace")
             if line:
-                yield line, time.time()
+                yield line, try_parse_frame(line), time.time()
+
+
+_TS_WRAP_US = 2**32  # the radio's local_timestamp is uint32 microseconds
 
 
 def _iter_replay(cfg: CollectorConfig):
     assert cfg.replay is not None
     period = 1.0 / cfg.replay_fs
     print(f"[collector] replaying {cfg.replay} at {cfg.replay_fs} fps")
+    # reconstruct frame timing from the recorded radio timestamps, anchored at
+    # the replay start: --replay-fs only paces the playback, it must not leak
+    # into the session's fs or the downstream Hz-based DSP would be wrong
+    anchor = time.time()
+    elapsed_us = 0
+    prev_us: int | None = None
     with cfg.replay.open() as fh:
         for line in fh:
-            yield line, time.time()
+            frame = try_parse_frame(line)
+            if frame is not None:
+                if prev_us is not None:
+                    elapsed_us += (frame.timestamp_us - prev_us) % _TS_WRAP_US
+                prev_us = frame.timestamp_us
+            yield line, frame, anchor + elapsed_us / 1e6
             time.sleep(period)
 
 
@@ -175,9 +193,8 @@ def run(cfg: CollectorConfig, max_frames: int | None = None) -> None:
     n = 0
     try:
         with raw_path.open("w") as raw:
-            for line, wall_time in lines:
+            for line, frame, wall_time in lines:
                 raw.write(line if line.endswith("\n") else line + "\n")
-                frame = try_parse_frame(line)
                 if frame is None:
                     continue
                 fanout.publish(frame, wall_time)
@@ -198,7 +215,12 @@ def main() -> None:
     parser.add_argument("--port", help="serial device, e.g. /dev/ttyACM0")
     parser.add_argument("--baud", type=int, default=921600)
     parser.add_argument("--replay", type=Path, help="replay a captured serial log")
-    parser.add_argument("--replay-fs", type=float, default=20.0)
+    parser.add_argument(
+        "--replay-fs",
+        type=float,
+        default=20.0,
+        help="playback pacing in lines/s; session timing always comes from the log",
+    )
     parser.add_argument("--out-dir", type=Path, default=Path("data/processed/esp32"))
     parser.add_argument("--rotate-s", type=float, default=600.0)
     parser.add_argument("--room")
