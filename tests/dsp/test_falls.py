@@ -52,6 +52,31 @@ def test_burst_followed_by_more_motion_is_not_a_fall():
     assert detect_falls(x, FS) == []
 
 
+def test_fall_shortly_after_rejected_blip_is_still_detected():
+    # a dropped object at t=60 is a burst candidate that fails the stillness
+    # check (the real fall lands inside its window); the scan must resume right
+    # after the blip, not skip past the fall
+    x = _breathing(120.0)
+    i = int(60.0 * FS)
+    x[i : i + int(0.5 * FS)] += _burst(0.5, seed=6)
+    j = int(64.0 * FS)
+    x[j : j + int(1.5 * FS)] += _burst(1.5, seed=7)
+    events = detect_falls(x, FS)
+    assert len(events) == 1
+    assert abs(events[0].t - 64.75) < 3.0
+
+
+def test_two_second_impact_is_still_a_fall():
+    # envelope smoothing and filtfilt ringing smear the above-threshold group
+    # well past the physical impact; a 2 s impact must not be rejected as
+    # sustained motion
+    x = _breathing(120.0)
+    i = int(60.0 * FS)
+    x[i : i + int(2.0 * FS)] += _burst(2.0)
+    events = detect_falls(x, FS)
+    assert len(events) == 1
+
+
 def test_two_separated_falls():
     x = _breathing(240.0)
     for fall_at, seed in ((60.0, 4), (180.0, 5)):

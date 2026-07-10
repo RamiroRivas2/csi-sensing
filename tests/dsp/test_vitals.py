@@ -109,6 +109,22 @@ class TestActivity:
         est = classify_activity(x, FS)
         assert est.state == "empty"
 
+    @pytest.mark.parametrize("fs", [8.0, 10.0, 12.5, 20.0])
+    def test_empty_room_stays_empty_at_low_fs(self, fs: float):
+        # live fs is measured from frame arrival and drops under light WiFi
+        # traffic; a fixed threshold on an fs-dependent band ratio used to
+        # misread white noise as presence below ~13 Hz
+        rng = np.random.default_rng(6)
+        x = rng.normal(0, 1.0, int(60 * fs))
+        assert classify_activity(x, fs).state == "empty"
+
+    @pytest.mark.parametrize("fs", [8.0, 10.0, 20.0])
+    def test_breathing_person_detected_at_low_fs(self, fs: float):
+        rng = np.random.default_rng(7)
+        t = np.arange(int(60 * fs)) / fs
+        x = np.sin(2 * np.pi * 0.25 * t) + rng.normal(0, 0.1, t.shape[0])
+        assert classify_activity(x, fs).state == "still"
+
     def test_breathing_person_is_still(self):
         x = _vitals_signal(60.0, noise=0.1)
         est = classify_activity(x, FS)

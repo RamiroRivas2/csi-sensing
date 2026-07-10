@@ -202,7 +202,7 @@ def heart_rate_timeline(
 
 @dataclass
 class ActivityEstimate:
-    presence_score: float  # coherent low-frequency energy fraction, 0..1
+    presence_score: float  # low-frequency energy concentration above flat noise, 0..1
     motion_score: float  # motion-band share of human-band energy, 0..1
     state: str  # "empty" | "still" | "moving"
 
@@ -210,7 +210,7 @@ class ActivityEstimate:
 def classify_activity(
     x: np.ndarray,
     fs: float,
-    presence_threshold: float = 0.45,
+    presence_threshold: float = 0.2,
     motion_threshold: float = 0.4,
 ) -> ActivityEstimate:
     """Coarse room-state classification from spectral energy distribution.
@@ -218,22 +218,36 @@ def classify_activity(
     A person present concentrates energy below ~2.5 Hz (breathing, body sway);
     an empty room's noise spreads flat across the spectrum; large body motion
     fills the 0.7-5 Hz band.
+
+    presence_score is normalized against the flat-noise expectation for the
+    actual analysis bands, so it stays comparable when fs (and with it the
+    available spectral headroom) changes: 0 means the human band holds no more
+    energy than white noise would, 1 means all broadband energy is in it.
+    Below fs of ~5.6 Hz there is no headroom above the human band to compare
+    against; presence is then unmeasurable and assumed, never reported empty.
     """
     comp = _first_component(x)
     comp = comp - comp.mean()
     nyq = fs / 2
     freqs, psd = signal.welch(comp, fs=fs, nperseg=min(comp.shape[0], int(fs * 20)))
 
-    def band_energy(lo: float, hi: float) -> float:
+    def band_energy(lo: float, hi: float) -> tuple[float, int]:
         m = (freqs >= lo) & (freqs < min(hi, nyq))
-        return float(psd[m].sum())
+        return float(psd[m].sum()), int(m.sum())
 
-    human = band_energy(0.1, 2.5)
-    broad = band_energy(0.1, min(8.0, nyq * 0.9))
-    motion = band_energy(*MOTION_BAND)
-    low_all = band_energy(0.1, MOTION_BAND[1])
+    broad_top = min(8.0, nyq * 0.9)
+    human, human_bins = band_energy(0.1, min(2.5, broad_top))
+    broad, broad_bins = band_energy(0.1, broad_top)
+    motion, _ = band_energy(*MOTION_BAND)
+    low_all, _ = band_energy(0.1, MOTION_BAND[1])
 
-    presence_score = human / broad if broad > 0 else 0.0
+    raw_presence = human / broad if broad > 0 else 0.0
+    flat_ratio = human_bins / broad_bins if broad_bins else 1.0
+    if flat_ratio >= 1.0:
+        presence_score = 1.0  # no headroom above the human band: assume presence
+    else:
+        presence_score = (raw_presence - flat_ratio) / (1.0 - flat_ratio)
+        presence_score = max(0.0, min(1.0, presence_score))
     motion_score = motion / low_all if low_all > 0 else 0.0
 
     if presence_score < presence_threshold:

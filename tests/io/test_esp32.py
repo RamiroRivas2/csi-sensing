@@ -3,7 +3,7 @@ import numpy as np
 from csi.io.esp32 import FrameParseError, parse_frame, try_parse_frame
 
 VALID = (
-    'CSI_DATA,42,aa:bb:cc:dd:ee:ff,-55,11,1,7,1,0,0,0,0,0,0,-92,0,6,0,1234567,0,60,0,8,0,'
+    "CSI_DATA,42,aa:bb:cc:dd:ee:ff,-55,11,1,7,1,0,0,0,0,0,0,-92,0,6,0,1234567,0,60,0,8,0,"
     '"[1,2,3,4,5,6,7,8]"'
 )
 
@@ -38,7 +38,7 @@ def test_corrupted_array_rejected():
 
 
 def test_len_mismatch_rejected():
-    bad = VALID.replace(",8,0,\"[", ",6,0,\"[")
+    bad = VALID.replace(',8,0,"[', ',6,0,"[')
     assert try_parse_frame(bad) is None
 
 
