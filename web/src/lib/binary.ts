@@ -4,8 +4,8 @@ export interface Float32Matrix {
   shape: number[]
 }
 
-export async function fetchFloat32(url: string): Promise<Float32Matrix> {
-  const res = await fetch(url)
+export async function fetchFloat32(url: string, signal?: AbortSignal): Promise<Float32Matrix> {
+  const res = await fetch(url, { signal })
   if (!res.ok) throw new Error(`${url}: ${res.status}`)
   const shapeHeader = res.headers.get('X-Shape')
   if (!shapeHeader) throw new Error(`${url}: missing X-Shape header`)

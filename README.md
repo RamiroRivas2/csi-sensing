@@ -57,6 +57,7 @@ serial port instead of `--replay`.
 ## Conventions
 
 - Type hints and dataclass configs everywhere; pytest is mandatory for `dsp/` (DSP bugs are silent)
+- CI gates on ruff (check + format), mypy, and pytest for python; oxlint and the build for web
 - Amplitude-only for now; ESP32 phase needs CFO/SFO sanitization and is deferred
 - Every recording carries provenance metadata: room, node positions, date, occupants (dogs included)
 - Every experiment gets a numbered folder with a config file and results.md

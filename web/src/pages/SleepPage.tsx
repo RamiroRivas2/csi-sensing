@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, type SessionInfo } from '../lib/api'
+import { api, getJson, type SessionInfo } from '../lib/api'
 import { LineChart } from '../components/LineChart'
 import { Hypnogram } from '../components/Hypnogram'
 
@@ -38,27 +38,46 @@ export function SleepPage() {
   const [activity, setActivity] = useState<ActivityPoint[]>([])
   const [wellbeing, setWellbeing] = useState<Wellbeing | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [wellbeingError, setWellbeingError] = useState<string | null>(null)
 
   useEffect(() => {
-    api.sessions().then((list) => {
+    const ctrl = new AbortController()
+    api.sessions(ctrl.signal).then((list) => {
+      if (ctrl.signal.aborted) return
       setSessions(list)
       if (list.length > 0) setSessionId(list[0].id)
-    }).catch((e) => setError(String(e)))
-    fetch('/api/wellbeing').then((r) => r.json()).then(setWellbeing).catch(() => {})
+    }).catch((e) => {
+      if (!ctrl.signal.aborted) setError(String(e))
+    })
+    getJson<Wellbeing>('/api/wellbeing', ctrl.signal)
+      .then((w) => {
+        if (!ctrl.signal.aborted) setWellbeing(w)
+      })
+      .catch((e) => {
+        if (!ctrl.signal.aborted) setWellbeingError(String(e))
+      })
+    return () => ctrl.abort()
   }, [])
 
   useEffect(() => {
     if (!sessionId) return
     setReport(null)
     setActivity([])
-    fetch(`/api/sessions/${sessionId}/sleep`)
-      .then((r) => r.json())
-      .then(setReport)
-      .catch((e) => setError(String(e)))
-    fetch(`/api/sessions/${sessionId}/vitals`)
-      .then((r) => r.json())
-      .then((v) => setActivity(v.activity ?? []))
+    setError(null)
+    const ctrl = new AbortController()
+    getJson<SleepReport>(`/api/sessions/${sessionId}/sleep`, ctrl.signal)
+      .then((r) => {
+        if (!ctrl.signal.aborted) setReport(r)
+      })
+      .catch((e) => {
+        if (!ctrl.signal.aborted) setError(String(e))
+      })
+    getJson<{ activity?: ActivityPoint[] }>(`/api/sessions/${sessionId}/vitals`, ctrl.signal)
+      .then((v) => {
+        if (!ctrl.signal.aborted) setActivity(v.activity ?? [])
+      })
       .catch(() => {})
+    return () => ctrl.abort() // a slow response for a deselected night must not land
   }, [sessionId])
 
   const selected = sessions.find((s) => s.id === sessionId)
@@ -77,6 +96,7 @@ export function SleepPage() {
         </label>
       </div>
 
+      {error && <div className="empty">{error}</div>}
       {report && (
         <div className="card-grid">
           <div className="stat-card">
@@ -123,7 +143,9 @@ export function SleepPage() {
       )}
 
       <h2>Trends across nights</h2>
-      {wellbeing === null ? (
+      {wellbeingError ? (
+        <div className="empty">{wellbeingError}</div>
+      ) : wellbeing === null ? (
         <div className="empty">loading...</div>
       ) : wellbeing.nights.length < 2 ? (
         <div className="empty">

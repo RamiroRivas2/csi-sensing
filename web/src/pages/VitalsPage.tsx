@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, type SessionInfo } from '../lib/api'
+import { api, getJson, type SessionInfo } from '../lib/api'
 import { LineChart } from '../components/LineChart'
 
 interface VitalsPoint {
@@ -46,10 +46,16 @@ export function VitalsPage() {
   useEffect(() => {
     if (!sessionId) return
     setVitals(null)
-    fetch(`/api/sessions/${sessionId}/vitals`)
-      .then((r) => r.json())
-      .then(setVitals)
-      .catch((e) => setError(String(e)))
+    setError(null)
+    const ctrl = new AbortController()
+    getJson<VitalsResponse>(`/api/sessions/${sessionId}/vitals`, ctrl.signal)
+      .then((v) => {
+        if (!ctrl.signal.aborted) setVitals(v)
+      })
+      .catch((e) => {
+        if (!ctrl.signal.aborted) setError(String(e))
+      })
+    return () => ctrl.abort() // a slow response for a deselected session must not land
   }, [sessionId])
 
   if (sessions.length === 0) return <div className="empty">{error ?? 'No sessions recorded yet.'}</div>
@@ -68,7 +74,9 @@ export function VitalsPage() {
         </label>
       </div>
 
-      {vitals === null ? (
+      {error ? (
+        <div className="empty">{error}</div>
+      ) : vitals === null ? (
         <div className="empty">estimating...</div>
       ) : (
         <>

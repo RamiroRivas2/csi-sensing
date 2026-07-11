@@ -51,7 +51,7 @@ def detect_falls(
     x: np.ndarray,
     fs: float,
     burst_z: float = 6.0,
-    max_burst_s: float = 4.0,
+    max_burst_s: float = 6.0,
     still_s: float = 8.0,
     still_z: float = 2.0,
     min_stillness: float = 0.8,
@@ -60,7 +60,9 @@ def detect_falls(
 
     burst_z: how many robust standard deviations above baseline the burst must peak.
     max_burst_s: longer above-threshold episodes are activity (walking, exercise),
-      not the 1-2 s impact of a fall.
+      not the 1-2 s impact of a fall. Measured on the smoothed envelope, which the
+      RMS window and zero-phase filter smear 2-3 s beyond the physical impact at
+      good SNR, so the physical cutoff is roughly max_burst_s minus that smear.
     still_s: how long after the burst the signal must stay near baseline.
     min_stillness: fraction of the post-burst window required below still_z.
     """
@@ -104,5 +106,9 @@ def detect_falls(
                         confidence=round(max(0.0, min(1.0, confidence)), 2),
                     )
                 )
-        i = j + still_bins  # skip past the stillness window before searching again
+                i = j + still_bins  # skip the accepted event's stillness window
+                continue
+        # rejected candidate: resume right after the burst, so a real fall inside
+        # what would have been this candidate's stillness window is still scanned
+        i = j
     return events

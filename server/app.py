@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
+import time
 from functools import lru_cache
 from pathlib import Path
 
@@ -19,7 +21,7 @@ from fastapi.responses import Response
 
 from collector.collector import FANOUT_HOST, FANOUT_PORT
 from csi.dsp.breathing import breathing_timeline, estimate_breathing_rate
-from csi.dsp.falls import detect_falls
+from csi.dsp.falls import FallEvent, detect_falls
 from csi.dsp.features import spectrogram as make_spectrogram
 from csi.dsp.filters import bandpass_filter, hampel_filter, pca_denoise
 from csi.dsp.quality import link_quality
@@ -29,13 +31,14 @@ from csi.dsp.vitals import (
     activity_timeline,
     classify_activity,
     estimate_heart_rate,
-    rate_timeline,
+    heart_rate_timeline,
 )
 from csi.io.writer import load_session
 from server import registry
 from server.arrays import MAX_COLS_DEFAULT, binary_response, downsample_time
 
 app = FastAPI(title="csi-sensing")
+logger = logging.getLogger(__name__)
 
 
 def _get(session_id: str):
@@ -55,7 +58,7 @@ def session_csi(
     session_id: str,
     t0: float = 0.0,
     t1: float | None = None,
-    max_cols: int = Query(MAX_COLS_DEFAULT, le=8000),
+    max_cols: int = Query(MAX_COLS_DEFAULT, ge=1, le=8000),
 ) -> Response:
     s = _get(session_id)
     i0 = max(0, int(t0 * s.fs))
@@ -123,7 +126,11 @@ def session_breathing(session_id: str, window_s: float = 30.0, hop_s: float = 5.
 
 @app.get("/api/sessions/{session_id:path}/vitals")
 def session_vitals(session_id: str) -> dict:
-    """Breathing, heart-rate (experimental), and activity timelines plus summary stats."""
+    """Breathing, heart-rate (experimental), and activity timelines plus summary stats.
+
+    The heart timeline is empty when the session's frame rate is below the heart
+    band's nyquist requirement; breathing and activity still work at those rates.
+    """
     import numpy as np
 
     s = _get(session_id)
@@ -131,7 +138,12 @@ def session_vitals(session_id: str) -> dict:
     comp = components[:, 0]
 
     b_times, b_est = breathing_timeline(comp, s.fs, window_s=30.0, hop_s=5.0)
-    h_times, h_est = rate_timeline(comp, s.fs, HEART_BAND, window_s=20.0, hop_s=5.0)
+    if s.fs > _BAND_FS_MARGIN * HEART_BAND[1]:
+        h_times, h_est = heart_rate_timeline(comp, s.fs, window_s=20.0, hop_s=5.0)
+    else:
+        # frame rate below the heart band's nyquist requirement: no reading,
+        # not a 500 - breathing and activity still work at these rates
+        h_times, h_est = np.empty(0), []
     a_times, a_est = activity_timeline(comp, s.fs, window_s=10.0, hop_s=5.0)
 
     def points(times, estimates):
@@ -195,14 +207,18 @@ def session_sleep(session_id: str) -> dict:
 
 @app.get("/api/sessions/{session_id:path}/quality")
 def session_quality(session_id: str) -> dict:
-    """Breathing-band SNR and placement verdict for one session."""
+    """Breathing-band SNR and placement verdict for one session.
+
+    The verdict is "unknown" (not "poor") when the recording is too short or its
+    frame rate too low to measure the noise floor.
+    """
     s = _get(session_id)
     return link_quality(s.amp, s.fs).__dict__
 
 
 @lru_cache(maxsize=256)
-def _night_metrics(session_path: str) -> dict:
-    # session files are immutable once written, so caching by resolved path is safe
+def _night_metrics(session_path: str, mtime_ns: int) -> dict:
+    # keyed on (path, mtime) so a rewritten file is recomputed, not served stale
     s = load_session(Path(session_path))
     return sleep_metrics(s.amp, s.fs).__dict__
 
@@ -225,7 +241,8 @@ def wellbeing() -> dict:
         if info.duration_s < MIN_NIGHT_S:
             continue
         path = registry.session_path(info.id)
-        nights.append({"id": info.id, "started_at": info.started_at, **_night_metrics(str(path))})
+        metrics = _night_metrics(str(path), path.stat().st_mtime_ns)
+        nights.append({"id": info.id, "started_at": info.started_at, **metrics})
     nights.sort(key=lambda n: n["started_at"] or n["id"])
 
     flags: list[dict] = []
@@ -294,17 +311,134 @@ def experiments() -> list[dict]:
 
 
 LIVE_WINDOW_FRAMES = 1200  # ~60 s at 20 fps kept for rolling bpm estimation
+_BAND_FS_MARGIN = 2.2  # band-pass design needs the band top comfortably under nyquist
+
+
+def _live_vitals(matrix, fs: float) -> tuple[dict | None, list[FallEvent]]:
+    """Rolling vitals estimate over one window. Pure CPU: runs in a worker thread."""
+    from csi.dsp.vitals import BREATHING_BAND
+
+    if fs <= _BAND_FS_MARGIN * BREATHING_BAND[1]:
+        return None, []  # frame rate too low for any band-passed estimate
+    try:
+        _, components = pca_denoise(matrix, n_components=1)
+        comp = components[:, 0]
+        breathing = estimate_breathing_rate(comp, fs)
+        activity = classify_activity(comp, fs)
+        quality = link_quality(comp, fs)
+        if fs > _BAND_FS_MARGIN * HEART_BAND[1]:
+            heart = estimate_heart_rate(comp, fs)
+            heart_bpm, heart_confidence = round(heart.bpm, 1), round(heart.confidence, 3)
+        else:
+            # a WiFi-traffic lull can push the measured frame rate below the
+            # heart band's nyquist requirement: that is "no reading", not an error
+            heart_bpm, heart_confidence = 0.0, 0.0
+        falls = detect_falls(comp, fs)
+    except ValueError:
+        return None, []  # window too short or degenerate for the filters this round
+    payload = {
+        "breathing_bpm": round(breathing.bpm, 1),
+        "breathing_confidence": round(breathing.confidence, 3),
+        "heart_bpm": heart_bpm,
+        "heart_confidence": heart_confidence,
+        "state": activity.state,
+        "presence": activity.presence_score,
+        "motion": activity.motion_score,
+        "snr_db": quality.snr_db,
+        "quality_score": quality.score,
+        "quality_verdict": quality.verdict,
+    }
+    return payload, falls
+
+
+async def _relay_live(ws: WebSocket, reader: asyncio.StreamReader) -> None:
+    """Forward collector frames and augment every ~2 s with rolling vitals."""
+    import numpy as np
+
+    window: list[list[float]] = []
+    times: list[float] = []
+    last_estimate = 0.0
+    last_fall_wall_t = 0.0
+    last_dsp_warn = float("-inf")
+    while True:
+        line = await reader.readline()
+        if not line:
+            await ws.send_json({"type": "error", "message": "collector disconnected"})
+            return
+        try:
+            frame = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # corrupt or partial line; the stream resyncs on the next newline
+        raw_amp, t = frame.get("amp"), frame.get("t")
+        if not isinstance(raw_amp, list) or not isinstance(t, int | float):
+            continue
+        try:
+            amp = [float(v) for v in raw_amp]
+        except (TypeError, ValueError):
+            continue  # non-numeric amp elements would poison the rolling window
+        await ws.send_json({"type": "frame", **frame})
+
+        if window and len(amp) != len(window[0]):
+            # subcarrier renegotiation: older frames are incompatible, restart
+            window.clear()
+            times.clear()
+        window.append(amp)
+        times.append(float(t))
+        if len(window) > LIVE_WINDOW_FRAMES:
+            window.pop(0)
+            times.pop(0)
+
+        span = times[-1] - times[0] if len(times) > 1 else 0.0
+        if span > 20.0 and times[-1] - last_estimate >= 2.0:
+            last_estimate = times[-1]
+            fs = (len(times) - 1) / span
+            matrix = np.asarray(window, dtype=float)
+            # CPU-bound DSP off the event loop: on it, every estimate would
+            # stall all other requests for hundreds of ms per connected client
+            try:
+                payload, falls = await asyncio.to_thread(_live_vitals, matrix, fs)
+            except Exception:  # noqa: BLE001 - a bad estimate tick must not kill the WS
+                now = time.monotonic()
+                if now - last_dsp_warn >= 30.0:
+                    last_dsp_warn = now
+                    logger.warning("live DSP tick failed; skipping estimate", exc_info=True)
+                continue
+            if payload is not None:
+                await ws.send_json({"type": "vitals", **payload})
+            for event in falls:
+                wall_t = times[0] + event.t
+                if wall_t > last_fall_wall_t + 10.0:  # dedupe across rolling windows
+                    last_fall_wall_t = wall_t
+                    await ws.send_json(
+                        {
+                            "type": "fall_alert",
+                            "t": wall_t,
+                            "severity": event.severity,
+                            "confidence": event.confidence,
+                        }
+                    )
+
+
+async def _watch_browser(ws: WebSocket) -> None:
+    """Consume browser messages so a departed client is noticed immediately,
+    not only when an idle collector eventually produces a frame to send."""
+    while True:
+        message = await ws.receive()  # any payload (text or binary) is discarded
+        if message["type"] == "websocket.disconnect":
+            raise WebSocketDisconnect(message.get("code", 1000), message.get("reason"))
 
 
 @app.websocket("/ws/live")
 async def ws_live(ws: WebSocket) -> None:
     """Relay the collector's localhost fanout to a browser WebSocket.
 
-    Forwards each frame verbatim and augments every ~2 s with a rolling breathing
-    estimate over the last LIVE_WINDOW_FRAMES frames.
+    Forwards each well-formed frame and augments every ~2 s with rolling vitals
+    estimates (breathing, experimental heart rate, activity, link quality) over
+    the last LIVE_WINDOW_FRAMES frames, plus deduplicated fall alerts. Garbled
+    fanout lines are skipped, a mid-stream subcarrier-count change resets the
+    rolling window, and a DSP failure skips that estimate tick; none of these
+    drop the connection.
     """
-    import numpy as np
-
     await ws.accept()
     try:
         reader, writer = await asyncio.open_connection(FANOUT_HOST, FANOUT_PORT)
@@ -313,66 +447,21 @@ async def ws_live(ws: WebSocket) -> None:
         await ws.close()
         return
 
-    window: list[list[float]] = []
-    times: list[float] = []
-    last_estimate = 0.0
-    last_fall_wall_t = 0.0
+    relay = asyncio.create_task(_relay_live(ws, reader))
+    watch = asyncio.create_task(_watch_browser(ws))
     try:
-        while True:
-            line = await reader.readline()
-            if not line:
-                await ws.send_json({"type": "error", "message": "collector disconnected"})
-                break
-            frame = json.loads(line)
-            await ws.send_json({"type": "frame", **frame})
-
-            window.append(frame["amp"])
-            times.append(frame["t"])
-            if len(window) > LIVE_WINDOW_FRAMES:
-                window.pop(0)
-                times.pop(0)
-
-            span = times[-1] - times[0] if len(times) > 1 else 0.0
-            if span > 20.0 and times[-1] - last_estimate >= 2.0:
-                last_estimate = times[-1]
-                fs = (len(times) - 1) / span
-                matrix = np.asarray(window)
-                _, components = pca_denoise(matrix, n_components=1)
-                comp = components[:, 0]
-                breathing = estimate_breathing_rate(comp, fs)
-                heart = estimate_heart_rate(comp, fs)
-                activity = classify_activity(comp, fs)
-                quality = link_quality(comp, fs)
-                await ws.send_json(
-                    {
-                        "type": "vitals",
-                        "breathing_bpm": round(breathing.bpm, 1),
-                        "breathing_confidence": round(breathing.confidence, 3),
-                        "heart_bpm": round(heart.bpm, 1),
-                        "heart_confidence": round(heart.confidence, 3),
-                        "state": activity.state,
-                        "presence": activity.presence_score,
-                        "motion": activity.motion_score,
-                        "snr_db": quality.snr_db,
-                        "quality_score": quality.score,
-                        "quality_verdict": quality.verdict,
-                    }
-                )
-
-                for event in detect_falls(comp, fs):
-                    wall_t = times[0] + event.t
-                    if wall_t > last_fall_wall_t + 10.0:  # dedupe across rolling windows
-                        last_fall_wall_t = wall_t
-                        await ws.send_json(
-                            {
-                                "type": "fall_alert",
-                                "t": wall_t,
-                                "severity": event.severity,
-                                "confidence": event.confidence,
-                            }
-                        )
-    except (WebSocketDisconnect, ConnectionResetError):
-        pass
+        done, pending = await asyncio.wait({relay, watch}, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        for task in pending:
+            with contextlib.suppress(
+                asyncio.CancelledError, WebSocketDisconnect, ConnectionResetError
+            ):
+                await task
+        for task in done:
+            exc = task.exception()
+            if exc is not None and not isinstance(exc, WebSocketDisconnect | ConnectionResetError):
+                raise exc
     finally:
         with contextlib.suppress(Exception):
             writer.close()

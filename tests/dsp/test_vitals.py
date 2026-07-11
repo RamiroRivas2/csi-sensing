@@ -6,6 +6,7 @@ from csi.dsp.vitals import (
     classify_activity,
     estimate_heart_rate,
     estimate_rate,
+    heart_rate_timeline,
     rate_timeline,
 )
 
@@ -28,11 +29,35 @@ def _vitals_signal(
     return sig + rng.normal(0, noise, t.shape[0])
 
 
-@pytest.mark.parametrize("heart_bpm", [60.0, 72.0, 90.0, 110.0])
+# Heart rates chosen NOT to coincide exactly with harmonics of the 15 bpm (0.25 Hz)
+# breathing carrier: 60 bpm (1.0 Hz) and 90 bpm (1.5 Hz) sit exactly on the 4th/6th
+# breathing harmonic, where notching correctly removes the real signal too - that
+# exact-collision case is a documented physical limit, not a recoverable rate.
+@pytest.mark.parametrize("heart_bpm", [66.0, 72.0, 84.0, 110.0])
 def test_heart_rate_recovered_within_2bpm(heart_bpm: float):
     x = _vitals_signal(120.0, heart_bpm=heart_bpm)
     est = estimate_heart_rate(x, FS)
     assert abs(est.bpm - heart_bpm) <= 2.0
+
+
+def test_pure_breathing_harmonics_do_not_forge_a_heart_rate():
+    """Non-sinusoidal breathing with NO cardiac component must not report a
+    confident heart rate from its harmonics (the harmonic-confusion failure mode)."""
+    rng = np.random.default_rng(9)
+    t = np.arange(int(120 * FS)) / FS
+    # triangular breathing at 18 bpm (0.3 Hz): rich harmonics into the 0.8-2.2 Hz band
+    breathing = signal_triangle(0.3, t)
+    x = breathing + rng.normal(0, 0.05, t.shape[0])
+    est = estimate_heart_rate(x, FS)
+    # after notching the breathing harmonics, no strong cardiac peak should survive;
+    # if a rate is reported at all it must be low-confidence, not a plausible HR
+    assert est.confidence < 0.5
+
+
+def signal_triangle(freq: float, t: np.ndarray) -> np.ndarray:
+    from scipy.signal import sawtooth
+
+    return sawtooth(2 * np.pi * freq * t, width=0.5)
 
 
 def test_heart_rate_from_matrix():
@@ -58,12 +83,47 @@ def test_rate_timeline_shapes():
     assert len(times) == len(estimates) > 0
 
 
+def test_heart_rate_timeline_recovers_real_rate():
+    x = _vitals_signal(120.0, heart_bpm=72.0)
+    times, estimates = heart_rate_timeline(x, FS, window_s=20.0, hop_s=5.0)
+    assert len(times) == len(estimates) > 0
+    assert abs(np.median([e.bpm for e in estimates]) - 72.0) <= 3.0
+
+
+def test_heart_rate_timeline_resists_pure_breathing_forgery():
+    """The per-window timeline must apply the same breathing-harmonic notch as
+    estimate_heart_rate, so pure breathing yields only low-confidence windows."""
+    rng = np.random.default_rng(9)
+    t = np.arange(int(120 * FS)) / FS
+    breathing = signal_triangle(0.3, t)
+    x = breathing + rng.normal(0, 0.05, t.shape[0])
+    times, estimates = heart_rate_timeline(x, FS, window_s=20.0, hop_s=5.0)
+    assert len(times) == len(estimates) > 0
+    assert np.median([e.confidence for e in estimates]) < 0.5
+
+
 class TestActivity:
     def test_empty_room_is_white_noise(self):
         rng = np.random.default_rng(2)
         x = rng.normal(0, 1.0, int(60 * FS))
         est = classify_activity(x, FS)
         assert est.state == "empty"
+
+    @pytest.mark.parametrize("fs", [8.0, 10.0, 12.5, 20.0])
+    def test_empty_room_stays_empty_at_low_fs(self, fs: float):
+        # live fs is measured from frame arrival and drops under light WiFi
+        # traffic; a fixed threshold on an fs-dependent band ratio used to
+        # misread white noise as presence below ~13 Hz
+        rng = np.random.default_rng(6)
+        x = rng.normal(0, 1.0, int(60 * fs))
+        assert classify_activity(x, fs).state == "empty"
+
+    @pytest.mark.parametrize("fs", [8.0, 10.0, 20.0])
+    def test_breathing_person_detected_at_low_fs(self, fs: float):
+        rng = np.random.default_rng(7)
+        t = np.arange(int(60 * fs)) / fs
+        x = np.sin(2 * np.pi * 0.25 * t) + rng.normal(0, 0.1, t.shape[0])
+        assert classify_activity(x, fs).state == "still"
 
     def test_breathing_person_is_still(self):
         x = _vitals_signal(60.0, noise=0.1)
@@ -75,8 +135,7 @@ class TestActivity:
         rng = np.random.default_rng(3)
         t = np.arange(int(60 * FS)) / FS
         motion = sum(
-            np.sin(2 * np.pi * f * t + rng.uniform(0, 2 * np.pi))
-            for f in (1.1, 1.9, 2.7, 3.6)
+            np.sin(2 * np.pi * f * t + rng.uniform(0, 2 * np.pi)) for f in (1.1, 1.9, 2.7, 3.6)
         )
         x = _vitals_signal(60.0, noise=0.1) + 2.0 * motion
         est = classify_activity(x, FS)

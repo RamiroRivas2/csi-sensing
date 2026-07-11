@@ -12,6 +12,14 @@ interface Props {
 export function LineChart({ x, series, xLabel, height = 220 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   const plotRef = useRef<uPlot | null>(null)
+  const dataRef = useRef<uPlot.AlignedData>([[]])
+
+  dataRef.current = [x, ...series.map((s) => s.values)] as uPlot.AlignedData
+
+  // rebuild the plot only when its structure changes; data-only updates go
+  // through setData below, so a streaming parent doesn't tear down the chart
+  // (and reset cursor/legend) on every frame
+  const structure = JSON.stringify([series.map((s) => [s.label, s.color]), xLabel, height])
 
   useEffect(() => {
     const host = hostRef.current
@@ -30,9 +38,8 @@ export function LineChart({ x, series, xLabel, height = 220 }: Props) {
         ...series.map((s) => ({ label: s.label, stroke: s.color, width: 1.5 })),
       ],
     }
-    const data = [x, ...series.map((s) => s.values)] as uPlot.AlignedData
     plotRef.current?.destroy()
-    plotRef.current = new uPlot(opts, data, host)
+    plotRef.current = new uPlot(opts, dataRef.current, host)
     const onResize = () => plotRef.current?.setSize({ width: host.clientWidth, height })
     window.addEventListener('resize', onResize)
     return () => {
@@ -40,7 +47,13 @@ export function LineChart({ x, series, xLabel, height = 220 }: Props) {
       plotRef.current?.destroy()
       plotRef.current = null
     }
-  }, [x, series, xLabel, height])
+    // structure captures every rebuild-worthy option; data changes must NOT recreate the plot
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [structure])
+
+  useEffect(() => {
+    plotRef.current?.setData(dataRef.current)
+  }, [x, series])
 
   return <div ref={hostRef} />
 }

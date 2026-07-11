@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from csi.io.writer import Session, load_session
+from csi.io.writer import Session, SessionHeader, load_session, load_session_header
 
 DATA_ROOT = Path("data/processed")
 
@@ -32,26 +32,36 @@ def list_sessions(root: Path | None = None) -> list[SessionInfo]:
     infos = []
     for path in sorted(root.glob("**/*.npz")):
         try:
-            session = get_session(_session_id(path, root), root)
+            # header only: listing must not decompress every recording's array
+            header = _header_cached(str(path.resolve()), path.stat().st_mtime_ns)
         except Exception:
             continue  # unreadable file should not take down the listing
         infos.append(
             SessionInfo(
                 id=_session_id(path, root),
-                dataset=session.meta.dataset,
-                label=session.meta.label,
-                fs=session.fs,
-                duration_s=round(session.duration_s, 1),
-                n_subcarriers=session.n_subcarriers,
-                started_at=session.meta.started_at,
-                room=session.meta.room,
+                dataset=header.meta.dataset,
+                label=header.meta.label,
+                fs=header.fs,
+                duration_s=round(header.duration_s, 1),
+                n_subcarriers=header.n_subcarriers,
+                started_at=header.meta.started_at,
+                room=header.meta.room,
             )
         )
     return infos
 
 
+# caches key on (path, mtime) so a rewritten file (e.g. a regenerated demo
+# session) is picked up instead of served stale for the life of the process
+
+
+@lru_cache(maxsize=1024)
+def _header_cached(resolved: str, mtime_ns: int) -> SessionHeader:
+    return load_session_header(Path(resolved))
+
+
 @lru_cache(maxsize=8)
-def _load_cached(resolved: str) -> Session:
+def _load_cached(resolved: str, mtime_ns: int) -> Session:
     return load_session(Path(resolved))
 
 
@@ -66,4 +76,5 @@ def session_path(session_id: str, root: Path | None = None) -> Path:
 
 
 def get_session(session_id: str, root: Path | None = None) -> Session:
-    return _load_cached(str(session_path(session_id, root)))
+    path = session_path(session_id, root)
+    return _load_cached(str(path), path.stat().st_mtime_ns)

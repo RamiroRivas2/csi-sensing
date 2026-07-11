@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CsiHeatmap, type CsiHeatmapHandle } from '../components/CsiHeatmap'
 import { HeatmapLegend } from '../components/HeatmapLegend'
 import { LineChart } from '../components/LineChart'
@@ -68,11 +68,25 @@ export function DashboardPage() {
     return () => ws.close()
   }, [])
 
+  // memoized so per-frame renders (fps updates ~20x/s) pass stable references
+  // to LineChart; only a new vitals estimate (~every 2 s) produces new arrays
+  const rateChart = useMemo(
+    () => ({
+      x: history.map((h) => h.t - (history[0]?.t ?? 0)),
+      series: [
+        { label: 'breathing bpm', values: history.map((h) => h.breathing), color: '#38bdf8' },
+        { label: 'heart bpm (experimental)', values: history.map((h) => h.heart), color: '#f472b6' },
+      ],
+    }),
+    [history],
+  )
+
   const heartUsable = vitals !== null && vitals.state === 'still' && vitals.heart_confidence > 0.1
   const stateColor =
     vitals?.state === 'still' ? 'ok' : vitals?.state === 'moving' ? 'warn' : 'muted'
+  // 'unknown' means the frame rate is too low to measure, not a bad placement
   const qualityTone =
-    vitals === null
+    vitals === null || vitals.quality_verdict === 'unknown'
       ? null
       : vitals.quality_verdict === 'excellent' || vitals.quality_verdict === 'good'
         ? 'ok'
@@ -143,7 +157,8 @@ export function DashboardPage() {
         <div className="stat-card">
           <div className="stat-card-label">link quality</div>
           <div className={`stat-card-value ${qualityTone ? `state-${qualityTone}` : ''}`}>
-            {vitals ? vitals.quality_score : '--'} <small>/ 100</small>
+            {vitals && vitals.quality_verdict !== 'unknown' ? vitals.quality_score : '--'}{' '}
+            <small>/ 100</small>
           </div>
           <div className="quality-meter">
             <div
@@ -160,7 +175,9 @@ export function DashboardPage() {
           </div>
           <div className="stat-card-sub">
             {vitals
-              ? `${vitals.quality_verdict} placement - ${vitals.snr_db} dB breathing SNR`
+              ? vitals.quality_verdict === 'unknown'
+                ? 'frame rate too low to measure - check the link, not the placement'
+                : `${vitals.quality_verdict} placement - ${vitals.snr_db} dB breathing SNR`
               : 'move nodes until this goes green'}
           </div>
         </div>
@@ -186,15 +203,7 @@ export function DashboardPage() {
       {history.length > 2 && (
         <>
           <h2>Rate history</h2>
-          <LineChart
-            x={history.map((h) => h.t - history[0].t)}
-            series={[
-              { label: 'breathing bpm', values: history.map((h) => h.breathing), color: '#38bdf8' },
-              { label: 'heart bpm (experimental)', values: history.map((h) => h.heart), color: '#f472b6' },
-            ]}
-            xLabel="elapsed (s)"
-            height={180}
-          />
+          <LineChart x={rateChart.x} series={rateChart.series} xLabel="elapsed (s)" height={180} />
         </>
       )}
     </div>

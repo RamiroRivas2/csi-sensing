@@ -5,17 +5,31 @@ import { fetchFloat32, type Float32Matrix } from '../lib/binary'
 import { CsiHeatmap } from '../components/CsiHeatmap'
 
 export function SessionPage() {
-  const { id = '' } = useParams()
-  const sessionId = decodeURIComponent(id)
+  // useParams values are already decoded by the router; decoding again would
+  // corrupt (or throw on) any id containing a literal %
+  const { id: sessionId = '' } = useParams()
   const [meta, setMeta] = useState<SessionMeta | null>(null)
   const [matrix, setMatrix] = useState<Float32Matrix | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    api.session(sessionId).then(setMeta).catch((e) => setError(String(e)))
-    fetchFloat32(`/api/sessions/${sessionId}/csi?max_cols=2000`)
-      .then(setMatrix)
-      .catch((e) => setError(String(e)))
+    setMeta(null)
+    setMatrix(null)
+    setError(null)
+    const ctrl = new AbortController()
+    api.session(sessionId, ctrl.signal).then((m) => {
+      if (!ctrl.signal.aborted) setMeta(m)
+    }).catch((e) => {
+      if (!ctrl.signal.aborted) setError(String(e))
+    })
+    fetchFloat32(`/api/sessions/${sessionId}/csi?max_cols=2000`, ctrl.signal)
+      .then((m) => {
+        if (!ctrl.signal.aborted) setMatrix(m)
+      })
+      .catch((e) => {
+        if (!ctrl.signal.aborted) setError(String(e))
+      })
+    return () => ctrl.abort() // a slow response for a previous session must not land
   }, [sessionId])
 
   if (error) return <div className="empty">{error}</div>

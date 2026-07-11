@@ -19,7 +19,7 @@ from csi.dsp.vitals import BREATHING_BAND, _first_component
 class LinkQuality:
     snr_db: float  # breathing peak vs noise floor
     score: int  # 0-100
-    verdict: str  # "excellent" | "good" | "fair" | "poor"
+    verdict: str  # "excellent" | "good" | "fair" | "poor" | "unknown"
 
 
 VERDICTS: tuple[tuple[float, str], ...] = (
@@ -40,7 +40,11 @@ def link_quality(x: np.ndarray, fs: float) -> LinkQuality:
     # breathing nor its harmonics nor typical body sway live
     floor_mask = (freqs >= 3.0) & (freqs <= 0.9 * fs / 2)
     if not band.any() or not floor_mask.any():
-        return LinkQuality(0.0, 0, "poor")
+        # too little data or too low a sample rate (fs <= ~6.7 Hz leaves no
+        # spectrum above 3 Hz) to measure the noise floor: the link is not
+        # known to be poor, it is unmeasurable - don't send the setup wizard
+        # chasing a placement problem that is actually a frame-rate problem
+        return LinkQuality(0.0, 0, "unknown")
 
     peak = float(psd[band].max())
     floor = float(np.median(psd[floor_mask])) or 1e-12
