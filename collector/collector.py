@@ -53,7 +53,11 @@ class CollectorConfig:
 
 
 class LiveFanout:
-    """Localhost TCP publisher: every connected client gets every frame as JSON lines."""
+    """Localhost TCP publisher: connected clients get frames as JSON lines.
+
+    A client that blocks a send for longer than SEND_TIMEOUT_S is dropped so a
+    stalled subscriber can never hold up serial ingest.
+    """
 
     def __init__(self, host: str = FANOUT_HOST, port: int = FANOUT_PORT) -> None:
         self._clients: list[socket.socket] = []
