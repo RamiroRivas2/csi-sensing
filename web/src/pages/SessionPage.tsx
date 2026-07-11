@@ -17,11 +17,15 @@ export function SessionPage() {
     setMatrix(null)
     setError(null)
     const ctrl = new AbortController()
-    api.session(sessionId, ctrl.signal).then(setMeta).catch((e) => {
+    api.session(sessionId, ctrl.signal).then((m) => {
+      if (!ctrl.signal.aborted) setMeta(m)
+    }).catch((e) => {
       if (!ctrl.signal.aborted) setError(String(e))
     })
     fetchFloat32(`/api/sessions/${sessionId}/csi?max_cols=2000`, ctrl.signal)
-      .then(setMatrix)
+      .then((m) => {
+        if (!ctrl.signal.aborted) setMatrix(m)
+      })
       .catch((e) => {
         if (!ctrl.signal.aborted) setError(String(e))
       })

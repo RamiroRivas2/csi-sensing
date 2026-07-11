@@ -99,6 +99,28 @@ def test_vitals_heart_path_resists_pure_breathing_forgery(client, tmp_path):
     assert body["summary"]["heart_confidence"] < 0.5
 
 
+def test_vitals_low_fs_skips_heart_timeline(client, tmp_path):
+    """A session recorded below the heart band's nyquist requirement (e.g. a WiFi
+    lull) gets an empty heart series, not a 500; breathing and activity remain."""
+    rng = np.random.default_rng(3)
+    fs = 4.0
+    t = np.arange(int(120 * fs)) / fs
+    breathing = np.sin(2 * np.pi * 0.25 * t)
+    amp = 20 + 2 * np.outer(breathing, rng.uniform(0.5, 1.5, 16))
+    amp = (amp + rng.normal(0, 0.3, amp.shape)).astype(np.float32)
+    save_session(
+        tmp_path / "esp32" / "slow.npz",
+        Session(amp=amp, fs=fs, meta=SessionMeta(dataset="esp32")),
+    )
+    res = client.get("/api/sessions/esp32/slow/vitals")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["heart"] == []
+    assert "heart_median_bpm" not in body["summary"]
+    assert abs(body["summary"]["breathing_median_bpm"] - 15.0) <= 1.5
+    assert len(body["activity"]) > 0
+
+
 def test_falls_endpoint(client):
     body = client.get("/api/sessions/esp32/demo/falls").json()
     assert body["events"] == []  # quiet breathing session has no falls
@@ -177,6 +199,17 @@ def test_ws_live_skips_malformed_frames(client, monkeypatch):
     )
     _fake_fanout(monkeypatch, payload)
     with client.websocket_connect("/ws/live") as ws:
+        assert ws.receive_json() == {"type": "frame", "t": 1.0, "amp": [1.0, 2.0]}
+        assert ws.receive_json()["type"] == "error"  # collector disconnected
+
+
+def test_ws_live_ignores_binary_client_frames(client, monkeypatch):
+    """A binary websocket frame from the browser is discarded, not treated as a
+    protocol error that kills the relay."""
+    payload = b'{"t": 1.0, "amp": [1.0, 2.0]}\n'
+    _fake_fanout(monkeypatch, payload)
+    with client.websocket_connect("/ws/live") as ws:
+        ws.send_bytes(b"\x00\x01\x02")
         assert ws.receive_json() == {"type": "frame", "t": 1.0, "amp": [1.0, 2.0]}
         assert ws.receive_json()["type"] == "error"  # collector disconnected
 

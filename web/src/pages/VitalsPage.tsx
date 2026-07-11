@@ -49,7 +49,9 @@ export function VitalsPage() {
     setError(null)
     const ctrl = new AbortController()
     getJson<VitalsResponse>(`/api/sessions/${sessionId}/vitals`, ctrl.signal)
-      .then(setVitals)
+      .then((v) => {
+        if (!ctrl.signal.aborted) setVitals(v)
+      })
       .catch((e) => {
         if (!ctrl.signal.aborted) setError(String(e))
       })

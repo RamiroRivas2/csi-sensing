@@ -43,13 +43,16 @@ export function SleepPage() {
   useEffect(() => {
     const ctrl = new AbortController()
     api.sessions(ctrl.signal).then((list) => {
+      if (ctrl.signal.aborted) return
       setSessions(list)
       if (list.length > 0) setSessionId(list[0].id)
     }).catch((e) => {
       if (!ctrl.signal.aborted) setError(String(e))
     })
     getJson<Wellbeing>('/api/wellbeing', ctrl.signal)
-      .then(setWellbeing)
+      .then((w) => {
+        if (!ctrl.signal.aborted) setWellbeing(w)
+      })
       .catch((e) => {
         if (!ctrl.signal.aborted) setWellbeingError(String(e))
       })
@@ -63,12 +66,16 @@ export function SleepPage() {
     setError(null)
     const ctrl = new AbortController()
     getJson<SleepReport>(`/api/sessions/${sessionId}/sleep`, ctrl.signal)
-      .then(setReport)
+      .then((r) => {
+        if (!ctrl.signal.aborted) setReport(r)
+      })
       .catch((e) => {
         if (!ctrl.signal.aborted) setError(String(e))
       })
     getJson<{ activity?: ActivityPoint[] }>(`/api/sessions/${sessionId}/vitals`, ctrl.signal)
-      .then((v) => setActivity(v.activity ?? []))
+      .then((v) => {
+        if (!ctrl.signal.aborted) setActivity(v.activity ?? [])
+      })
       .catch(() => {})
     return () => ctrl.abort() // a slow response for a deselected night must not land
   }, [sessionId])

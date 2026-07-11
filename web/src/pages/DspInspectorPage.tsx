@@ -33,6 +33,7 @@ export function DspInspectorPage() {
       ctrl.signal,
     )
       .then(({ data, shape }) => {
+        if (ctrl.signal.aborted) return
         const t = shape[1]
         setSignal({
           raw: Array.from(data.subarray(0, t)),
@@ -43,7 +44,9 @@ export function DspInspectorPage() {
       .catch((e) => {
         if (!ctrl.signal.aborted) setError(String(e))
       })
-    api.psd(sessionId, subcarrier, ctrl.signal).then(setPsd).catch((e) => {
+    api.psd(sessionId, subcarrier, ctrl.signal).then((p) => {
+      if (!ctrl.signal.aborted) setPsd(p)
+    }).catch((e) => {
       if (!ctrl.signal.aborted) setError(String(e))
     })
     return () => ctrl.abort()

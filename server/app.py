@@ -134,7 +134,12 @@ def session_vitals(session_id: str) -> dict:
     comp = components[:, 0]
 
     b_times, b_est = breathing_timeline(comp, s.fs, window_s=30.0, hop_s=5.0)
-    h_times, h_est = heart_rate_timeline(comp, s.fs, window_s=20.0, hop_s=5.0)
+    if s.fs > _BAND_FS_MARGIN * HEART_BAND[1]:
+        h_times, h_est = heart_rate_timeline(comp, s.fs, window_s=20.0, hop_s=5.0)
+    else:
+        # frame rate below the heart band's nyquist requirement: no reading,
+        # not a 500 - breathing and activity still work at these rates
+        h_times, h_est = np.empty(0), []
     a_times, a_est = activity_timeline(comp, s.fs, window_s=10.0, hop_s=5.0)
 
     def points(times, estimates):
@@ -410,7 +415,9 @@ async def _watch_browser(ws: WebSocket) -> None:
     """Consume browser messages so a departed client is noticed immediately,
     not only when an idle collector eventually produces a frame to send."""
     while True:
-        await ws.receive_text()  # raises WebSocketDisconnect when the browser leaves
+        message = await ws.receive()  # any payload (text or binary) is discarded
+        if message["type"] == "websocket.disconnect":
+            raise WebSocketDisconnect(message.get("code", 1000), message.get("reason"))
 
 
 @app.websocket("/ws/live")

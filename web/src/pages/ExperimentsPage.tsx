@@ -23,7 +23,9 @@ export function ExperimentsPage() {
   useEffect(() => {
     const ctrl = new AbortController()
     getJson<Experiment[]>('/api/experiments', ctrl.signal)
-      .then(setExperiments)
+      .then((list) => {
+        if (!ctrl.signal.aborted) setExperiments(list)
+      })
       .catch((e) => {
         if (!ctrl.signal.aborted) setError(String(e))
       })

@@ -158,6 +158,7 @@ def _iter_serial(cfg: CollectorConfig):
 
 
 _TS_WRAP_US = 2**32  # the radio's local_timestamp is uint32 microseconds
+_MAX_FRAME_GAP_US = 5_000_000  # bigger deltas mean a radio reboot or corruption, not a wrap
 
 
 def _iter_replay(cfg: CollectorConfig):
@@ -170,12 +171,21 @@ def _iter_replay(cfg: CollectorConfig):
     anchor = time.time()
     elapsed_us = 0
     prev_us: int | None = None
+    gap_us = 0
     with cfg.replay.open() as fh:
         for line in fh:
             frame = try_parse_frame(line)
             if frame is not None:
                 if prev_us is not None:
-                    elapsed_us += (frame.timestamp_us - prev_us) % _TS_WRAP_US
+                    delta = (frame.timestamp_us - prev_us) % _TS_WRAP_US
+                    if delta > _MAX_FRAME_GAP_US:
+                        # a mid-log radio reboot (or corrupted timestamp) is not
+                        # a uint32 wrap: substitute the last plausible gap so
+                        # phantom elapsed time cannot distort the session
+                        delta = gap_us
+                    else:
+                        gap_us = delta
+                    elapsed_us += delta
                 prev_us = frame.timestamp_us
             yield line, frame, anchor + elapsed_us / 1e6
             time.sleep(period)

@@ -34,12 +34,15 @@ def downsample_time(arr: np.ndarray, max_cols: int = MAX_COLS_DEFAULT) -> np.nda
     if t <= max_cols:
         return arr
     stride = int(np.ceil(t / max_cols))
+    bins = -(-t // stride)
     mean = arr.mean(axis=0, keepdims=True)
 
-    cols = []
-    for start in range(0, t, stride):
-        chunk = arr[start : start + stride]
-        # index of the largest absolute deviation from the column mean, per column
-        idx = np.abs(chunk - mean).argmax(axis=0)
-        cols.append(np.take_along_axis(chunk, idx[None], axis=0)[0])
-    return np.stack(cols)
+    pad = bins * stride - t
+    if pad:
+        # pad the partial last bin with the column mean: zero deviation, so a
+        # pad sample can never win the argmax over a real one
+        arr = np.concatenate([arr, np.broadcast_to(mean, (pad, *arr.shape[1:]))])
+    chunks = arr.reshape(bins, stride, *arr.shape[1:])
+    # index of the largest absolute deviation from the column mean, per bin and column
+    idx = np.abs(chunks - mean).argmax(axis=1)
+    return np.take_along_axis(chunks, np.expand_dims(idx, axis=1), axis=1).squeeze(axis=1)
