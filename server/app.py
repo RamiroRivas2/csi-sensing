@@ -126,7 +126,11 @@ def session_breathing(session_id: str, window_s: float = 30.0, hop_s: float = 5.
 
 @app.get("/api/sessions/{session_id:path}/vitals")
 def session_vitals(session_id: str) -> dict:
-    """Breathing, heart-rate (experimental), and activity timelines plus summary stats."""
+    """Breathing, heart-rate (experimental), and activity timelines plus summary stats.
+
+    The heart timeline is empty when the session's frame rate is below the heart
+    band's nyquist requirement; breathing and activity still work at those rates.
+    """
     import numpy as np
 
     s = _get(session_id)
@@ -203,7 +207,11 @@ def session_sleep(session_id: str) -> dict:
 
 @app.get("/api/sessions/{session_id:path}/quality")
 def session_quality(session_id: str) -> dict:
-    """Breathing-band SNR and placement verdict for one session."""
+    """Breathing-band SNR and placement verdict for one session.
+
+    The verdict is "unknown" (not "poor") when the recording is too short or its
+    frame rate too low to measure the noise floor.
+    """
     s = _get(session_id)
     return link_quality(s.amp, s.fs).__dict__
 
